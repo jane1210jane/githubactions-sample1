@@ -63,8 +63,53 @@ v9.0.0
 
 ### Step 2: `ci.yml` を作成する
 
-`.github/workflows/ci.yml` を作成します（内容は本リポジトリの実ファイルを参照。
-`uses:` のバージョンは Step 1 で確認した実際のタグに合わせてあります）。
+`.github/workflows/ci.yml` を作成します。`uses:` のバージョンは Step 1 で確認した実際のタグに
+合わせてあります。以下は **Stage 1 完了時点（タグ `stage-01`）の内容をそのまま転記したもの**です。
+`on:` と `concurrency:` は Stage 2 でトリガー設計ごと書き換えられるため、現在の `main` の
+`ci.yml` はこれと異なります（`pull_request:` が追加され、`push:` にブランチ・パスの絞り込みが
+入り、`concurrency:` ブロックが新設されています）。本ドキュメント内の行番号の引用
+（このステップと次の「5. 何が変わったか」節）は、すべて**この転記ブロック内の行番号**を指しており、
+リポジトリの実ファイルを開いて数える必要はありません。
+
+```
+  1| # Stage 1: アプリに CI をつける。
+  2| # push のたびに lint とテストを走らせ、壊れたことをすぐ知る。
+  3| name: CI
+  4|
+  5| on:
+  6|   push:
+  7|
+  8| permissions:
+  9|   contents: read
+ 10|
+ 11| jobs:
+ 12|   test:
+ 13|     name: Lint & Test
+ 14|     runs-on: ubuntu-latest
+ 15|     steps:
+ 16|       # Stage 0 で見たとおり、ランナーは空。まずリポジトリを持ってくる。
+ 17|       - name: リポジトリを取得する
+ 18|         uses: actions/checkout@v7
+ 19|
+ 20|       - name: uv と Python をセットアップする
+ 21|         uses: astral-sh/setup-uv@v7
+ 22|         with:
+ 23|           python-version: "3.12"
+ 24|
+ 25|       # --locked: uv.lock と pyproject.toml がずれていたら失敗させる。
+ 26|       # ローカルと CI で違う依存が入る事故を防ぐ。
+ 27|       - name: 依存関係をインストールする
+ 28|         run: uv sync --locked
+ 29|
+ 30|       - name: フォーマットを確認する
+ 31|         run: uv run ruff format --check .
+ 32|
+ 33|       - name: lint を確認する
+ 34|         run: uv run ruff check .
+ 35|
+ 36|       - name: テストを実行する
+ 37|         run: uv run pytest -v
+```
 
 ### Step 3: コミットして push し、CI が緑になることを確認する
 
@@ -138,6 +183,10 @@ gh run watch "$RUN_ID" --exit-status
 ## 5. 何が変わったか
 
 `ci.yml` を書いたことで、以下が具体的な行と対応するようになりました。
+以下の行番号は、Step 2 で転記した `ci.yml`（タグ `stage-01` 時点の内容）の行番号です。
+`on:` と `concurrency:` は Stage 2 で追加されるため、現在の `main` の `ci.yml` では
+これらの行番号がずれています（Stage 2 の解説は `docs/stages/stage-02-triggers-and-pr-gate.md`
+を参照してください）。
 
 - **`uses:`**（18行目 `uses: actions/checkout@v7`、21行目 `uses: astral-sh/setup-uv@v7`）:
   自分でコマンドを書く `run:` と違い、他人（ここでは GitHub 自身と astral-sh 社）が公開した
@@ -185,6 +234,20 @@ gh run watch "$RUN_ID" --exit-status
   **原因**: バッジ URL 中のリポジトリ名やワークフローファイル名（`ci.yml`）が実際のものと
   違っている。この失敗はエラーも出さず**無言で壊れる**ため、貼った直後に実際の表示を
   目で確認する習慣をつけてください。
+
+- **症状**: Windows のコマンドプロンプトや PowerShell で `uv run sales-report data/sales_sample.csv`
+  を実行すると、日本語の表（月・件数・売上金額の見出しなど）が文字化けする。
+  **原因**: Windows の既定のコンソールコードページ（多くの場合 CP932）が UTF-8 でないため。
+  Python の標準出力エンコーディングはコンソールのコードページに影響されます。
+  **対処**: 実行前にコンソールを UTF-8 に切り替えるか、`PYTHONIOENCODING` を指定してください。
+
+  ```powershell
+  chcp 65001
+  # または
+  $env:PYTHONIOENCODING = "utf-8"
+  ```
+
+  詳しくは `docs/troubleshooting.md` の「日本語が文字化けする」を参照してください。
 
 ## 7. 演習課題
 

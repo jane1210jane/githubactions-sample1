@@ -23,10 +23,13 @@ Stage 1 の CI には、体験してみると分かる大きな穴が残って�
    その結果を見るかどうかは人間の注意力に委ねられていました。忙しいときや、
    通知を見逃したときは、壊れたコードがそのまま `main` に残り続けます。
    無視できるチェックは、存在しないのと同じです。
-2. **あらゆるブランチへの push で毎回 CI が走ってしまう**。Stage 1 の `on: push:` は
-   ブランチを絞っていないため、実験用の一時ブランチに push しただけでも CI が起動します。
-   ブランチが増えるほど、また同じブランチに連続して push するほど、
-   無駄な実行時間が積み重なります。
+2. **`main` に push するたびに、無関係なワークフローまで一緒に起動してしまう**。
+   Stage 0〜1 はまだ `main` に直接 push する運用だったため、これは実際に体験した痛みです。
+   Stage 1 の `ci.yml` の `on: push:` はブランチもパスも絞っていないため、
+   ドキュメントを1行直しただけの push でも `Lint & Test` が走ります。しかも `hello.yml`
+   （Stage 0 の学習用ワークフロー、当時は `on:` に `push:` も残っていました）まで
+   一緒に起動していました。`main` へ push するたびに本来不要なワークフローの実行が
+   積み重なっていたのが実情です。
 
 このステージでは、この2つを「トリガー設計」と「ruleset によるゲート化」で解決します。
 
@@ -43,7 +46,73 @@ git switch -c stage/02-triggers
 ### Step 2: `ci.yml` のトリガーと `concurrency` を書き換える
 
 `on:` を `pull_request:`（`main` 向け）と `push:`（`main` 向け、`docs/` と `*.md` は除外）に、
-`concurrency:` を追加しました（実際の内容は本リポジトリの `.github/workflows/ci.yml` を参照）。
+`concurrency:` を追加しました。以下は **Stage 2 完了時点（本リポジトリの現在のタグ `stage-02`）の
+内容をそのまま転記したもの**です。本ドキュメント内の行番号の引用（このステップと次の
+「5. 何が変わったか」節）は、すべて**この転記ブロック内の行番号**を指しており、
+リポジトリの実ファイルを開いて数える必要はありません。
+
+```
+  1| # Stage 1 でアプリに CI を追加し、Stage 2 でトリガーを設計し直した。
+  2| # 現在は PR には必ず、main への push はドキュメントのみの変更を除いて
+  3| # lint とテストを走らせ、PR は Lint & Test が緑でなければマージできない
+  4| # （ruleset によるゲートは .github/workflows/ の外、リポジトリ設定側にある）。
+  5| name: CI
+  6|
+  7| on:
+  8|   # PR には必ず CI を走らせる。paths で絞らないのは、
+  9|   # 必須チェックにしたときにドキュメントだけの PR が永久に待ち状態になるため。
+ 10|   pull_request:
+ 11|     branches: [main]
+ 12|   # main への push は、ドキュメントだけの変更なら省略してよい。
+ 13|   push:
+ 14|     branches: [main]
+ 15|     paths-ignore:
+ 16|       - "docs/**"
+ 17|       - "**/*.md"
+ 18|
+ 19| # 同じブランチで新しい実行が始まったら、古い実行を止める。
+ 20| # main では途中で止めたくないので、PR のときだけキャンセルする。
+ 21| concurrency:
+ 22|   group: ${{ github.workflow }}-${{ github.ref }}
+ 23|   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+ 24|
+ 25| # permissions: このワークフローが GITHUB_TOKEN に許す操作。
+ 26| # 最小権限にしておく。なぜ必要かは Stage 6 で回収する。
+ 27| permissions:
+ 28|   contents: read
+ 29|
+ 30| jobs:
+ 31|   test:
+ 32|     name: Lint & Test
+ 33|     runs-on: ubuntu-latest
+ 34|     steps:
+ 35|       # Stage 0 で見たとおり、ランナーは空。まずリポジトリを持ってくる。
+ 36|       - name: リポジトリを取得する
+ 37|         uses: actions/checkout@v7
+ 38|
+ 39|       - name: uv と Python をセットアップする
+ 40|         uses: astral-sh/setup-uv@v7
+ 41|         with:
+ 42|           python-version: "3.12"
+ 43|
+ 44|       # --locked: uv.lock と pyproject.toml がずれていたら失敗させる。
+ 45|       # ローカルと CI で違う依存が入る事故を防ぐ。
+ 46|       - name: 依存関係をインストールする
+ 47|         run: uv sync --locked
+ 48|
+ 49|       - name: フォーマットを確認する
+ 50|         run: uv run ruff format --check .
+ 51|
+ 52|       - name: lint を確認する
+ 53|         run: uv run ruff check .
+ 54|
+ 55|       - name: テストを実行する
+ 56|         run: uv run pytest -v
+```
+
+ファイル冒頭のコメント（1〜4行目）は Stage 1 で CI を追加し Stage 2 でトリガーを設計し直した
+という経緯と、現在のトリガー条件を説明しています。`permissions:`（27〜28行目）には、
+`hello.yml` と同様に「なぜ必要かは Stage 6 で回収する」というコメントを付けています。
 
 ### Step 3: `hello.yml` の `push` トリガーを外す
 
@@ -133,25 +202,27 @@ git pull
 
 ## 5. 何が変わったか
 
-- **`push` と `pull_request` の違い**（`ci.yml` 6〜9行目 と 10〜15行目）:
+以下の行番号は、Step 2 で転記した `ci.yml`（タグ `stage-02` 時点の内容）の行番号です。
+
+- **`pull_request` と `push` の違い**（`ci.yml` 10〜11行目 と 13〜17行目）:
   `push` はブランチの現在の状態に対して走りますが、`pull_request` は**マージ後の状態
   （ベースブランチと自分のブランチをマージしたコミット）**に対して走ります。
   そのため、「自分のブランチ単体では通ったのに、`main` の最新と合わせた PR では落ちる」
   ということが起こり得ます。これはコンフリクトはしていなくても、両方の変更を
   同時に適用した結果おかしくなるケースがある、という意味です。
-- **`branches:` / `paths-ignore:` によるフィルタ**（`ci.yml` 9行目・12行目・13〜15行目）:
-  `pull_request:` 側は `branches: [main]`（9行目）だけを条件にし、`paths` では絞りません。
-  `push:` 側は `branches: [main]`（12行目）に加えて `paths-ignore:`（13〜15行目）で
+- **`branches:` / `paths-ignore:` によるフィルタ**（`ci.yml` 11行目・14行目・15〜17行目）:
+  `pull_request:` 側は `branches: [main]`（11行目）だけを条件にし、`paths` では絞りません。
+  `push:` 側は `branches: [main]`（14行目）に加えて `paths-ignore:`（15〜17行目）で
   `docs/**` と `**/*.md` を除外しています。ドキュメントだけの
   変更で `main` に push するときまで lint とテストを走らせる必要はないためです。
   なぜ `pull_request` 側に `paths-ignore` を付けないのかは、次の「つまずきポイント」で
   説明します。
-- **`concurrency` の `group` と `cancel-in-progress`**（`ci.yml` 17〜21行目）:
+- **`concurrency` の `group` と `cancel-in-progress`**（`ci.yml` 19〜23行目）:
   `group` が同じ実行同士だけが打ち消し合います。今回の `group: ${{ github.workflow }}-${{ github.ref }}`
-  は「ワークフロー名 + ブランチ（または PR の ref）」の組み合わせなので、
+  （22行目）は「ワークフロー名 + ブランチ（または PR の ref）」の組み合わせなので、
   同じブランチ・同じ PR 内で新しい実行が始まったときだけ古い実行が対象になります。
   他のブランチや他の PR の実行には影響しません。
-- **`cancel-in-progress` を PR のときだけ有効にした理由**（`ci.yml` 21行目）:
+- **`cancel-in-progress` を PR のときだけ有効にした理由**（`ci.yml` 23行目）:
   `${{ github.event_name == 'pull_request' }}` という式にすることで、PR 上の実行
   （何度も push し直す途中経過）はどんどんキャンセルして最新だけを見ればよい一方、
   `main` に対する実行は最後まで走らせています。`main` の実行結果は README のバッジや
@@ -171,14 +242,16 @@ git pull
   として扱います。必須チェックが未報告のままだと、PR は**いつまで経ってもマージ可能に
   なりません**。
 - **必須チェックはジョブの `name:` で指定する。`jobs:` のキー名ではない。**
-  `ci.yml` では `jobs:` のキーは `test`（27行目）ですが、ruleset に登録したチェック名は
-  `Lint & Test`（28行目の `name:`）です。もし `name:` を変更すると、GitHub 側から見て
+  `ci.yml` では `jobs:` のキーは `test`（31行目）ですが、ruleset に登録したチェック名は
+  `Lint & Test`（32行目の `name:`）です。もし `name:` を変更すると、GitHub 側から見て
   「`Lint & Test` という名前のチェックがもう報告されなくなった」ことになり、
   ruleset の必須チェック設定はエラーにもならず**無言で無効化**されます
   （正確には、そのチェックがずっと「未報告」のままになり、PR がマージできなくなります）。
 - **`concurrency` で古い実行がキャンセルされるのは正常。** 赤（失敗）ではなく
   灰色の `cancelled` として表示されます。「テストが落ちた」わけではないので、
-  ログを調べる必要はありません。
+  ログを調べる必要はありません。ただし、`cancelled` になった実行は「必須チェックが
+  まだ緑になっていない」状態のままなので、後続の実行が終わって `success` を報告するまでの
+  短い間、その PR は一時的にマージ不可のままになります。慌てず後続の実行を待ってください。
 - **ruleset は自分自身にも適用される。** 管理者であっても、今回の設定では
   ruleset をバイパスするアクター（bypass actor）を指定していないため、`main` への
   直接 push はできません。実際に Step 8 で自分自身の push が拒否されることを確認しました。
