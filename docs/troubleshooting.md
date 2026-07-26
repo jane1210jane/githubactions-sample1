@@ -26,3 +26,18 @@ GitHub Actions の失敗は、ローカルと違って手元で再現しづら�
 
 **原因**: ステップのコマンドが 0 以外で終了した。これは結果であって原因ではない。
 **対処**: このメッセージの**すぐ上**の行を読む。テストの失敗内容や lint の指摘がそこに出ている。
+
+### `Changes must be made through a pull request`
+
+**原因**: ruleset により、デフォルトブランチへの直接 push が禁止されている。
+**対処**: 意図した動作。ブランチを切って PR を出す。
+`git switch -c fix/xxx && git push -u origin fix/xxx && gh pr create`
+
+### PR が「Expected — Waiting for status to be reported」から進まない
+
+**原因**: 必須チェックに指定した名前のジョブが、その PR では起動していない。
+`paths` / `paths-ignore` フィルタでワークフロー自体がスキップされると、
+チェックは「未報告」のまま永久に待ち続ける。
+**対処**: `pull_request` トリガーには `paths` フィルタを付けない。
+どうしても付けたい場合は、常に成功する集約ジョブを 1 つ用意し、そちらを必須チェックにする
+（この設計はモノレポ化する Stage 9 で扱う）。
