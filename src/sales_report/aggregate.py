@@ -49,7 +49,10 @@ def parse_records(rows: Iterable[Mapping[str, str]]) -> tuple[SalesRecord, ...]:
 
 
 def _parse_row(row: Mapping[str, str], line_number: int) -> SalesRecord:
-    missing = [column for column in REQUIRED_COLUMNS if column not in row]
+    # csv.DictReader は末尾フィールドが欠けた行でも restval（既定 None）でキーを埋めるため、
+    # キーの有無ではなく値が空かどうかで欠落を判定する。
+    # quantity="0" のような正当な値は非空文字列なので、ここでは誤って弾かれない。
+    missing = [column for column in REQUIRED_COLUMNS if not row.get(column)]
     if missing:
         raise ValueError(f"{line_number}行目: 列が足りません: {', '.join(missing)}")
 
@@ -60,7 +63,7 @@ def _parse_row(row: Mapping[str, str], line_number: int) -> SalesRecord:
             quantity=int(row["quantity"]),
             unit_price=Decimal(row["unit_price"]),
         )
-    except (ValueError, InvalidOperation) as error:
+    except (ValueError, InvalidOperation, TypeError) as error:
         raise ValueError(f"{line_number}行目: 値を解釈できません: {error}") from error
 
 
@@ -83,5 +86,7 @@ def aggregate_monthly(records: Iterable[SalesRecord]) -> tuple[MonthlyTotal, ...
 def format_table(totals: Iterable[MonthlyTotal]) -> str:
     """集計結果を人間が読める表に整形する。"""
     header = ["月       件数         売上金額", "-------- ---- ----------------"]
-    body = [f"{total.month} {total.record_count:>4} {total.total_amount:>16,}" for total in totals]
+    body = [
+        f"{total.month:<8} {total.record_count:>4} {total.total_amount:>16,}" for total in totals
+    ]
     return "\n".join(header + (body or [NO_DATA_MESSAGE]))

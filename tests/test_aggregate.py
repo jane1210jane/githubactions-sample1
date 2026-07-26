@@ -34,6 +34,18 @@ def test_parse_records_raises_when_a_required_column_is_missing():
         parse_records(rows)
 
 
+def test_parse_records_raises_when_a_trailing_column_is_none_like_dictreader():
+    """csv.DictReader は末尾フィールドが欠けた行を、キー自体を消すのではなく
+    値 None（restval の既定）で埋める。この shape で TypeError にならず
+    ValueError になることを確認する（上のテストはキーがそもそも無い shape で、
+    DictReader が実際に作らない形なので、これとは別に必要）。
+    """
+    rows = [{"date": "2026-01-05", "product": "ノートPC", "quantity": "2", "unit_price": None}]
+
+    with pytest.raises(ValueError, match="unit_price"):
+        parse_records(rows)
+
+
 def test_parse_records_reports_the_line_number_of_an_invalid_value():
     rows = [
         {"date": "2026-01-05", "product": "A", "quantity": "1", "unit_price": "100"},
@@ -93,3 +105,14 @@ def test_format_table_shows_a_row_per_month():
 
 def test_format_table_states_explicitly_when_there_is_no_data():
     assert "(対象データなし)" in format_table(())
+
+
+def test_format_table_aligns_columns_with_the_separator_line():
+    """月は "YYYY-MM"（7文字）なので、区切り線の8文字幅に合わせて左詰めしないと
+    件数・売上金額の列が区切り線より1文字左にずれる。"""
+    totals = (MonthlyTotal(month="2026-01", total_amount=Decimal("250"), record_count=2),)
+
+    lines = format_table(totals).split("\n")
+    separator, body_row = lines[1], lines[2]
+
+    assert len(body_row) == len(separator)
