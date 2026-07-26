@@ -103,7 +103,7 @@ gh workflow run hello.yml -f greeting_target=Actions
 
 `hello.yml` を書いたことで、以下の用語がすべて具体的な行と対応するようになりました。
 
-- **イベント**（`hello.yml` の `on:` ブロック、6〜13行目）: ワークフローを起動するきっかけ。
+- **イベント**（`hello.yml` の `on:` ブロック、6〜16行目）: ワークフローを起動するきっかけ。
   ここでは `push` と `workflow_dispatch` の2種類を登録している。
 - **ワークフロー**（`hello.yml` というファイルそのもの、1つ）: `on:` に登録したイベントが起きたときに
   実行される、一連のジョブの集まり。ワークフロー名は `name:`（3行目）の `Stage 0 - Hello Actions`。
