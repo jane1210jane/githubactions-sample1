@@ -1,5 +1,7 @@
 # GitHub Actions 段階学習リポジトリ
 
+[![CI](https://github.com/jane1210jane/githubactions-sample1/actions/workflows/ci.yml/badge.svg)](https://github.com/jane1210jane/githubactions-sample1/actions/workflows/ci.yml)
+
 売上 CSV を月次集計するサンプルアプリ `sales-report` を題材に、GitHub Actions を
 「最小のワークフロー」から「プロダクト品質の CI/CD」まで段階的に学ぶ教材リポジトリです。
 

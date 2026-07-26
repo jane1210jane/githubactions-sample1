@@ -11,4 +11,18 @@ GitHub Actions の失敗は、ローカルと違って手元で再現しづら�
 
 ## 症状から引く
 
-（Stage が進むごとに追記されます）
+### `ModuleNotFoundError: No module named 'sales_report'`
+
+**原因**: `actions/checkout` を書き忘れているか、依存のインストール前にテストを実行している。
+**対処**: `uses: actions/checkout@v7` が最初のステップにあるか、`uv sync --locked` の後に
+`uv run pytest` が来ているかを確認する。
+
+### `The lockfile at 'uv.lock' needs to be updated`
+
+**原因**: `pyproject.toml` を変更したのに `uv.lock` を更新していない。`--locked` はこのズレを検出する。
+**対処**: ローカルで `uv lock` を実行し、`uv.lock` をコミットして push する。
+
+### `Error: Process completed with exit code 1`
+
+**原因**: ステップのコマンドが 0 以外で終了した。これは結果であって原因ではない。
+**対処**: このメッセージの**すぐ上**の行を読む。テストの失敗内容や lint の指摘がそこに出ている。
