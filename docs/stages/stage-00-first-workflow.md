@@ -13,8 +13,10 @@
 
 - GitHub 上に public リポジトリがあり、`origin` として手元に登録済みであること（Task 1 で完了済み）。
 - `gh` CLI がインストールされ、認証済みであること（`gh auth status` で確認できる状態）。
-- ここではローカルに Python や Node などの実行環境は一切不要です。ワークフローの中身を実行するのは、
-  自分のPCではなく GitHub が用意する仮想マシン（ランナー）だからです。
+- **ワークフローそのものを実行する**のにローカルの実行環境は一切不要です。`hello.yml` の中身を
+  実行するのは自分の PC ではなく GitHub が用意する仮想マシン（ランナー）だからです。
+  （ただし Step 2 でローカルに YAML の構文チェックをする際だけは、Python か `uv` のどちらかが必要です。
+  詳しくは Step 2 を参照してください。）
 
 ## 3. なぜ必要か
 
@@ -33,10 +35,86 @@ Stage 0 は、その土台となる一次体験を作るためだけに存在し
 
 ### Step 1: `hello.yml` を作成する
 
-`.github/workflows/hello.yml` を作成します（本ステージの成果物、内容は本リポジトリの実ファイルを参照）。
+`.github/workflows/hello.yml` を作成します（本ステージの成果物）。以下は **Stage 0 完了時点
+（タグ `stage-00`）の内容をそのまま転記したもの**です。`push:` トリガーは Stage 2 で削除される
+ため、現在の `main` の `hello.yml` はこれと異なります（`on:` が `workflow_dispatch:` だけになっています）。
+本ドキュメント内の行番号の引用（このステップと次の「5. 何が変わったか」節）は、
+すべて**この転記ブロック内の行番号**を指しており、リポジトリの実ファイルを開いて数える必要はありません。
+
+```
+  1| # Stage 0: いちばん小さなワークフロー。
+  2| # 目的は「動かして、ログを読んで、ランナーの正体を知る」こと。
+  3| name: Stage 0 - Hello Actions
+  4|
+  5| # on: どのイベントでこのワークフローを起動するか。
+  6| on:
+  7|   # push: どのブランチに push しても起動する（Stage 2 で絞り込む）
+  8|   push:
+  9|   # workflow_dispatch: Actions タブから手動で起動できるようにする
+ 10|   workflow_dispatch:
+ 11|     inputs:
+ 12|       greeting_target:
+ 13|         description: 挨拶する相手
+ 14|         required: false
+ 15|         default: world
+ 16|         type: string
+ 17|
+ 18| # permissions: このワークフローが GITHUB_TOKEN に許す操作。
+ 19| # 最小権限にしておく。なぜ必要かは Stage 6 で回収する。
+ 20| permissions:
+ 21|   contents: read
+ 22|
+ 23| jobs:
+ 24|   greet:
+ 25|     name: 挨拶してランナーを観察する
+ 26|     runs-on: ubuntu-latest
+ 27|     steps:
+ 28|       - name: 挨拶する
+ 29|         # 外部から来る値は run: に直接埋め込まず env: を経由させる。
+ 30|         # 理由は Stage 6 で回収する。
+ 31|         env:
+ 32|           GREETING_TARGET: ${{ inputs.greeting_target || 'world' }}
+ 33|         run: echo "Hello, ${GREETING_TARGET}!"
+ 34|
+ 35|       - name: ランナーの素性を確認する
+ 36|         run: |
+ 37|           echo "----- OS -----"
+ 38|           uname -a
+ 39|           echo "----- 作業ディレクトリ -----"
+ 40|           pwd
+ 41|           echo "----- 作業ディレクトリの中身 -----"
+ 42|           ls -la
+ 43|           echo "（リポジトリのファイルが無いことに注目。取得は Stage 1 で行う）"
+ 44|
+ 45|       - name: 証拠ファイルを作る
+ 46|         run: |
+ 47|           date --iso-8601=seconds > evidence.txt
+ 48|           cat evidence.txt
+ 49|
+ 50|       - name: 同じジョブの中ではファイルが残っていることを確認する
+ 51|         run: cat evidence.txt
+ 52|
+ 53|   check-isolation:
+ 54|     name: 別ジョブから同じファイルを探す
+ 55|     runs-on: ubuntu-latest
+ 56|     # needs: greet ジョブの完了を待つ
+ 57|     needs: greet
+ 58|     steps:
+ 59|       - name: 別ジョブに evidence.txt が存在しないことを確認する
+ 60|         run: |
+ 61|           if [ -f evidence.txt ]; then
+ 62|             echo "見つかってしまった（想定外）"
+ 63|             exit 1
+ 64|           fi
+ 65|           echo "存在しない。ジョブごとにランナーは別のマシンである。"
+```
+
 ポイントは次の3点です。
 
-- `on:` に `push` と `workflow_dispatch` の両方を指定し、自動起動と手動起動の両方を試せるようにしてある。
+- `on:`（6〜16行目）に `push`（7〜8行目）と `workflow_dispatch`（9〜16行目）の両方を指定し、
+  自動起動と手動起動の両方を試せるようにしてある。**この `push:` は Stage 2 で削除されるため、
+  現在の `main` の `hello.yml` には残っていません**（Step 3・Step 4 の確認結果は、
+  Stage 0 完了時点でこの `push:` が存在したことを前提にしています）。
 - `workflow_dispatch` には `greeting_target` という入力を1つ用意し、手動実行時に挨拶の相手を変えられるようにしてある。
 - `jobs:` の下に `greet` と `check-isolation` という2つのジョブがあり、後者は前者の後片付けの様子を観察するためだけに存在する。
 
@@ -66,7 +144,9 @@ git push
 ```
 
 push が終わると、GitHub リポジトリの **Actions タブ** に「Stage 0 - Hello Actions」という
-ワークフロー実行が自動的に現れます（`on: push` の効果です）。ブラウザで次を確認してください。
+ワークフロー実行が自動的に現れます（Step 1 で転記した `on: push:` の効果です。**この `push:` は
+Stage 2 で削除されるため、Stage 2 完了後の `main` では同じ操作をしても自動実行されません**。
+手動起動する方法は Step 4 を参照してください）。ブラウザで次を確認してください。
 
 1. Actions タブを開くと、一覧の一番上に今回の実行が表示される。
 2. 実行名をクリックすると、`greet` と `check-isolation` の2つのジョブが並んで表示される。
@@ -102,9 +182,11 @@ gh workflow run hello.yml -f greeting_target=Actions
 ## 5. 何が変わったか
 
 `hello.yml` を書いたことで、以下の用語がすべて具体的な行と対応するようになりました。
+以下の行番号は、Step 1 で転記した `hello.yml`（タグ `stage-00` 時点の内容）の行番号です。
 
 - **イベント**（`hello.yml` の `on:` ブロック、6〜16行目）: ワークフローを起動するきっかけ。
-  ここでは `push` と `workflow_dispatch` の2種類を登録している。
+  ここでは `push` と `workflow_dispatch` の2種類を登録している
+  （`push` は Stage 2 で削除されるため、現在の `main` の `on:` ブロックは `workflow_dispatch` のみ）。
 - **ワークフロー**（`hello.yml` というファイルそのもの、1つ）: `on:` に登録したイベントが起きたときに
   実行される、一連のジョブの集まり。ワークフロー名は `name:`（3行目）の `Stage 0 - Hello Actions`。
 - **ジョブ**（`jobs:` の子、`greet` と `check-isolation`）: `jobs:` の直下に並ぶ実行単位。

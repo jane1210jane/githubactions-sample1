@@ -37,3 +37,19 @@ def test_main_reports_a_readable_error_when_a_value_is_invalid(tmp_path: Path, c
 
     assert exit_code == EXIT_INVALID_INPUT
     assert "2行目" in capsys.readouterr().err
+
+
+def test_main_reports_a_readable_error_when_a_row_is_truncated(tmp_path: Path, capsys):
+    """DictReader は末尾フィールドの欠落を restval（既定 None）で埋めるため、
+    行の末尾の列がまるごと無い CSV でも列名自体はキーとして存在する。
+    この shape で TypeError にならず、読める日本語エラーになることを確認する。
+    """
+    csv_path = tmp_path / "truncated.csv"
+    csv_path.write_text("date,product,quantity,unit_price\n2026-01-06,B,3\n", encoding="utf-8")
+
+    exit_code = main([str(csv_path)])
+
+    stderr = capsys.readouterr().err
+    assert exit_code == EXIT_INVALID_INPUT
+    assert "エラー" in stderr
+    assert "2行目" in stderr

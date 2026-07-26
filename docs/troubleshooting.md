@@ -33,6 +33,23 @@ GitHub Actions の失敗は、ローカルと違って手元で再現しづら�
 **対処**: 意図した動作。ブランチを切って PR を出す。
 `git switch -c fix/xxx && git push -u origin fix/xxx && gh pr create`
 
+### 日本語が文字化けする
+
+**原因**: Windows のコマンドプロンプトや PowerShell の既定のコンソールコードページが
+UTF-8 になっていない（多くの場合 CP932）。`sales-report` や pytest の出力に含まれる
+日本語がそのコードページで正しく表示できず、記号の羅列のように化ける。
+**対処**: 実行前にコンソールを UTF-8 に切り替える。
+
+```powershell
+chcp 65001
+```
+
+または、そのプロセスだけ `PYTHONIOENCODING` で明示的に UTF-8 を指定する。
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+```
+
 ### PR が「Expected — Waiting for status to be reported」から進まない
 
 **原因**: 必須チェックに指定した名前のジョブが、その PR では起動していない。
