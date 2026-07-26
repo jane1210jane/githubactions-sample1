@@ -1,0 +1,37 @@
+# Stage 1: アプリに CI をつける。
+# push のたびに lint とテストを走らせ、壊れたことをすぐ知る。
+name: CI
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      # Stage 0 で見たとおり、ランナーは空。まずリポジトリを持ってくる。
+      - name: リポジトリを取得する
+        uses: actions/checkout@v7
+
+      - name: uv と Python をセットアップする
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.12"
+
+      # --locked: uv.lock と pyproject.toml がずれていたら失敗させる。
+      # ローカルと CI で違う依存が入る事故を防ぐ。
+      - name: 依存関係をインストールする
+        run: uv sync --locked
+
+      - name: フォーマットを確認する
+        run: uv run ruff format --check .
+
+      - name: lint を確認する
+        run: uv run ruff check .
+
+      - name: テストを実行する
+        run: uv run pytest -v
