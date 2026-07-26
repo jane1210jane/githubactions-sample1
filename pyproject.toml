@@ -29,6 +29,9 @@ addopts = "--cov=sales_report --cov-report=term-missing"
 
 [tool.ruff]
 line-length = 100
+# 教材ドキュメント内のコード断片は読みやすさのために手で改行している。
+# ruff に整形させると解説の意図が崩れるため対象外にする。
+exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
