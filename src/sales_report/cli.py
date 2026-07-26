@@ -32,7 +32,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_INVALID_INPUT
 
     print(format_table(totals))
-    return EXIT_OK
+    return 1
 
 
 def _read_rows(csv_path: Path) -> list[dict[str, str]]:
