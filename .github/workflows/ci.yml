@@ -1,5 +1,7 @@
-# Stage 1: アプリに CI をつける。
-# push のたびに lint とテストを走らせ、壊れたことをすぐ知る。
+# Stage 1 でアプリに CI を追加し、Stage 2 でトリガーを設計し直した。
+# 現在は PR には必ず、main への push はドキュメントのみの変更を除いて
+# lint とテストを走らせ、PR は Lint & Test が緑でなければマージできない
+# （ruleset によるゲートは .github/workflows/ の外、リポジトリ設定側にある）。
 name: CI
 
 on:
@@ -20,6 +22,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# permissions: このワークフローが GITHUB_TOKEN に許す操作。
+# 最小権限にしておく。なぜ必要かは Stage 6 で回収する。
 permissions:
   contents: read
 
