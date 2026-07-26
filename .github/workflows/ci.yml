@@ -3,7 +3,22 @@
 name: CI
 
 on:
+  # PR には必ず CI を走らせる。paths で絞らないのは、
+  # 必須チェックにしたときにドキュメントだけの PR が永久に待ち状態になるため。
+  pull_request:
+    branches: [main]
+  # main への push は、ドキュメントだけの変更なら省略してよい。
   push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+
+# 同じブランチで新しい実行が始まったら、古い実行を止める。
+# main では途中で止めたくないので、PR のときだけキャンセルする。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
