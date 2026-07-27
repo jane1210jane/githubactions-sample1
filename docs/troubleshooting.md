@@ -74,8 +74,13 @@ $env:PYTHONIOENCODING = "utf-8"
 skipped は success でも failure でもないため、必須チェックは「未報告」のままになる。
 **対処**: 集約ジョブに `if: always()` を書き、依存の結果を自分で判定して明示的に失敗させる。
 
-### `error: The Python request from `.python-version` resolved to Python 3.11, which is incompatible with the project's Python requirement`
+### `error: The requested interpreter resolved to Python 3.11.15, which is incompatible with the project's Python requirement: `>=3.12` (from `project.requires-python`)`
 
 **原因**: matrix に指定した Python バージョンが `pyproject.toml` の `requires-python` を満たしていない。
+本教材には `.python-version` ファイルは無く、`astral-sh/setup-uv` の `with.python-version`
+（`ci.yml` の `matrix.python-version`）が要求元になっているため、エラー文の主語は
+`.python-version` ではなく「requested interpreter（要求したインタプリタ）」になる。
+末尾のパッチバージョン（例のメッセージでは `3.11.15`）は、その時点で `uv` が解決した
+実際のパッチリリースにより変わる。
 **対処**: matrix の値か `requires-python` のどちらかを直す。
 matrix は「対応を宣言した範囲」と一致させる。

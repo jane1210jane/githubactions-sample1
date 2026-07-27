@@ -9,10 +9,11 @@
 「Windows のレグが早く赤くなるだけ」で、大きな違いは無さそうに思うかもしれません。
 
 **解答**: `fail-fast: true`（既定値）にすると、matrix のどれか1つのレグが失敗した瞬間、
-GitHub は**まだ実行中の残りの matrix レグを即座にキャンセル**します。
+GitHub は**残りの matrix レグ（実行中のものだけでなく、ランナー割り当て待ちで
+まだ開始していない待機中＝queued のレグも含む）を即座にキャンセル**します。
 `windows-latest` のテストだけをわざと失敗させた場合、`ubuntu-latest / 3.12` や
-`ubuntu-latest / 3.13` が実行中であれば、それらは `windows-latest` の失敗を待たずに
-`cancelled` として打ち切られます。
+`ubuntu-latest / 3.13` は、実行中であればもちろん、まだ実行が始まっていなくても、
+`windows-latest` の失敗を待たずに `cancelled` として打ち切られます。
 
 これが問題になるのは、**キャンセルされたレグの結果が分からなくなる**ことです。
 「Windows だけの問題なのか、それとも Python バージョンやコードそのものの問題で、
@@ -50,8 +51,35 @@ CI 自体は緑で成功しているにもかかわらず、マージだけが�
 
 ## 問3: matrix に `python-version: "3.11"` を追加すると何が起きるか
 
-**予想**: matrix に値を1つ足すだけなので、素直に `Test (ubuntu-latest / Python 3.11)` の
-ようなレグが増えて、そのまま緑になりそうに思うかもしれません。
+**予想**: matrix に値を1つ足すだけなので、`Test (ubuntu-latest / Python 3.11)` のような
+レグが1つ増えて、そのまま緑になりそう、あるいは Windows だけ・Ubuntu だけが落ちそうに
+思うかもしれません。
+
+**実際に確かめる**: `matrix.python-version` に `"3.11"` を実際に追加して push しました
+（実行 ID `30279340067`）。`matrix.os` は `[ubuntu-latest, windows-latest]` の2つで、
+`exclude` が除外しているのは `windows-latest` × `python-version: "3.12"` の組み合わせ
+だけです（詳しくは [stage-03-speed-and-matrix.md](../stage-03-speed-and-matrix.md) の
+「何が変わったか」を参照）。`"3.11"` はその `exclude` の対象外なので、
+`ubuntu-latest` × `3.11` と `windows-latest` × `3.11` の**両方**のレグが生成され、
+実際に**両方とも赤くなりました**。
+
+```
+X Test (ubuntu-latest / Python 3.11)  in 9s
+X Test (windows-latest / Python 3.11) in 16s
+```
+
+`ubuntu-latest / Python 3.11` のログに実際に出力されたエラーです。
+
+```
+error: The requested interpreter resolved to Python 3.11.15, which is incompatible with the project's Python requirement: `>=3.12` (from `project.requires-python`)
+```
+
+`windows-latest / Python 3.11` でも同じ形式のエラーで、パッチバージョンだけが異なりました
+（`Python 3.11.9`）。
+
+```
+error: The requested interpreter resolved to Python 3.11.9, which is incompatible with the project's Python requirement: `>=3.12` (from `project.requires-python`)
+```
 
 **解答**: `pyproject.toml` には次の指定があります。
 
@@ -60,19 +88,20 @@ CI 自体は緑で成功しているにもかかわらず、マージだけが�
 requires-python = ">=3.12"
 ```
 
-`python-version: "3.11"` を matrix に追加すると、そのレグでは `astral-sh/setup-uv` が
-Python 3.11 をセットアップした上で `uv sync --locked` を実行します。しかし
-`requires-python = ">=3.12"` を満たさないため、`uv sync --locked` は
-「プロジェクトが要求する Python バージョンと、実際に使われている Python バージョンが
-矛盾している」という趣旨のエラーで失敗します。`fail-fast: false` にしてあるので、
-他のレグ（3.12・3.13）は巻き込まれず、`Test (ubuntu-latest / Python 3.11)` のレグだけが
-赤くなります。
+`requires-python = ">=3.12"` という制約は OS に依存しません。`astral-sh/setup-uv` が
+Python 3.11 をセットアップした後、`uv sync --locked` がこの制約との矛盾を検出して
+失敗するのは、`ubuntu-latest` でも `windows-latest` でも**同じ理由**です。したがって
+`fail-fast: false` で他のレグへの巻き添えを防いでいても、赤くなるのは「Ubuntu だけ」でも
+「Windows だけ」でもなく、**Python 3.11 の
+レグが2つとも**（`Test (ubuntu-latest / Python 3.11)` と `Test (windows-latest / Python 3.11)`）
+赤くなります。OS を変えても救われない失敗である、という点が実測から確認できました。
 
 この結果が示しているのは、**matrix は「動かしたい組み合わせ」を書く場所であって、
 プロジェクトが対応している範囲そのものを宣言する場所ではない**、ということです。
 `pyproject.toml` の `requires-python` が「対応する Python の範囲」の正式な宣言であり、
 `ci.yml` の matrix はそれと**一致していなければならない**制約を受ける側です。
-両者がズレると、matrix に足しただけの1行で CI が壊れます。逆に、`requires-python` を
-広げたのに matrix を更新し忘れると、対応すると宣言した環境の一部を誰も検証しないまま
-「CI は緑」という状態になり得ます。matrix と `requires-python` は**セットで**
-見直す習慣が必要です。確認後は、追加した `"3.11"` を matrix から削除してください。
+両者がズレると、matrix に足しただけの1行で、影響を受けるすべての OS のレグが
+一斉に壊れます。逆に、`requires-python` を広げたのに matrix を更新し忘れると、
+対応すると宣言した環境の一部を誰も検証しないまま「CI は緑」という状態になり得ます。
+matrix と `requires-python` は**セットで**見直す習慣が必要です。確認後は、追加した
+`"3.11"` を matrix から削除し（`git revert` で戻しました）、3レグの構成に戻しています。
