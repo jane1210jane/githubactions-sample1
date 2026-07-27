@@ -69,7 +69,21 @@ def collect_citations(lines: Sequence[str]) -> tuple[Citation, ...]:
 
 
 def check_document(path: Path) -> tuple[Problem, ...]:
-    lines = path.read_text(encoding="utf-8").splitlines()
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return (Problem(path, 0, "ファイルが見つかりません"),)
+
+    unclosed_fence_line = _find_unclosed_fence(lines)
+    if unclosed_fence_line is not None:
+        return (
+            Problem(
+                path,
+                unclosed_fence_line,
+                f"{unclosed_fence_line}行目で開始したコードフェンスが閉じられていません",
+            ),
+        )
+
     transcript = collect_transcript_line_numbers(lines)
     problems: list[Problem] = []
 
@@ -130,6 +144,15 @@ def _classify(lines: Sequence[str]) -> list[tuple[str, bool]]:
     return classified
 
 
+def _find_unclosed_fence(lines: Sequence[str]) -> int | None:
+    """閉じられていないコードフェンスがあれば、その開始行番号を返す。無ければ None。"""
+    fence_start: int | None = None
+    for number, line in enumerate(lines, start=1):
+        if line.lstrip().startswith(FENCE_PREFIX):
+            fence_start = number if fence_start is None else None
+    return fence_start
+
+
 def _iter_markdown(paths: Iterable[Path]) -> list[Path]:
     found: list[Path] = []
     for path in paths:
@@ -147,4 +170,4 @@ def _label(citation: Citation) -> str:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))
