@@ -24,8 +24,10 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# tools/ は配布物に含めないが、テストからは import したいので import パスに追加する。
+pythonpath = ["tools"]
 # カバレッジは表示するだけ。CI のゲートにするのは Stage 4。
-addopts = "--cov=sales_report --cov-report=term-missing"
+addopts = "--cov=sales_report --cov=check_doc_citations --cov-report=term-missing"
 
 [tool.ruff]
 line-length = 100
