@@ -27,8 +27,8 @@ dev = [
 testpaths = ["tests"]
 # tools/ は配布物に含めないが、テストからは import したいので import パスに追加する。
 pythonpath = ["tools"]
-# カバレッジは表示するだけ。CI のゲートにするのは Stage 4。
-addopts = "--cov=sales_report --cov=check_doc_citations --cov-report=term-missing"
+# Stage 4: カバレッジを表示するだけでなく、閾値を下回ったら落とすゲートにする。
+addopts = "--cov=sales_report --cov=check_doc_citations --cov-report=term-missing --cov-fail-under=80"
 
 [tool.ruff]
 line-length = 100
