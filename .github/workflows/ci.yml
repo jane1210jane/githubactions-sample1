@@ -44,6 +44,8 @@ jobs:
   checks:
     name: Checks
     uses: ./.github/workflows/reusable-python-ci.yml
+    with:
+      python-versions: '["3.13"]'
 
   # 集約ゲート。ruleset が必須チェックとして見ているのはこのジョブの name。
   # 呼び出し先のジョブ名は `Checks / Static Checks` のように変わるが、
