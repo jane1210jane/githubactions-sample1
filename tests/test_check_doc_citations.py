@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from check_doc_citations import (
@@ -7,6 +10,8 @@ from check_doc_citations import (
     collect_transcript_line_numbers,
     main,
 )
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DOC_WITH_VALID_CITATION = """# 見出し
 
@@ -128,3 +133,41 @@ def test_main_returns_one_and_reports_to_stderr_when_a_document_is_broken(tmp_pa
 
     assert exit_code == 1
     assert "ng.md" in capsys.readouterr().err
+
+
+def test_cli_entrypoint_passes_command_line_arguments_to_main(tmp_path: Path):
+    (tmp_path / "ng.md").write_text(DOC_WITH_OUT_OF_RANGE_CITATION, encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, "tools/check_doc_citations.py", str(tmp_path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+    )
+
+    assert result.returncode == 1
+    assert "ng.md" in result.stderr
+
+
+def test_check_document_reports_an_unclosed_fence(tmp_path: Path):
+    path = tmp_path / "unclosed.md"
+    path.write_text(
+        "本文で 2行目 を引用する。\n\n```\n  1| a\n  2| b\n",
+        encoding="utf-8",
+    )
+
+    problems = check_document(path)
+
+    assert len(problems) == 1
+    assert "フェンス" in problems[0].message
+
+
+def test_check_document_reports_a_missing_file(tmp_path: Path):
+    path = tmp_path / "missing.md"
+
+    problems = check_document(path)
+
+    assert len(problems) == 1
+    assert "見つかりません" in problems[0].message
