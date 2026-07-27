@@ -79,7 +79,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13"]
         # 全4通りは要らない。Windows は最新 Python だけ確認できれば十分、
         # という判断を exclude で表現する。組み合わせ爆発は matrix の主な失敗要因。
         exclude:
