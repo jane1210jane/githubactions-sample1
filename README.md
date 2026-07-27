@@ -31,6 +31,7 @@ git switch main                # 最新の状態に戻る
 | Stage | テーマ | 解説 |
 |---|---|---|
 | 3 | 高速化と再現性 | [stage-03](docs/stages/stage-03-speed-and-matrix.md) |
+| 4 | 品質ゲート | [stage-04](docs/stages/stage-04-quality-gate.md) |
 
 ### フェーズ3以降
 

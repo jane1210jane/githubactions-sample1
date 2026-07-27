@@ -32,6 +32,26 @@ env:
   ACTIONLINT_VERSION: "1.7.12"
 
 jobs:
+  # 後続ジョブに値を渡す例。outputs はジョブ間で文字列を受け渡す唯一の仕組みで、
+  # ランナーが別マシンである以上ファイルでは渡せない（Stage 0 で確認したとおり）。
+  meta:
+    name: Metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - name: リポジトリを取得する
+        uses: actions/checkout@v7
+
+      - name: pyproject.toml からバージョンを読む
+        id: read
+        run: |
+          version=$(grep -m1 '^version = ' pyproject.toml | cut -d '"' -f 2)
+          echo "読み取ったバージョン: ${version}"
+          # $GITHUB_OUTPUT に書いた key=value が、この step の outputs になる。
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
   static:
     name: Static Checks
     runs-on: ubuntu-latest
@@ -54,6 +74,9 @@ jobs:
 
       - name: lint を確認する
         run: uv run ruff check .
+
+      - name: 型を確認する
+        run: uv run mypy src tools
 
       - name: 解説の行番号引用を検証する
         run: uv run python tools/check_doc_citations.py docs/stages
@@ -114,13 +137,38 @@ jobs:
   gate:
     name: Lint & Test
     runs-on: ubuntu-latest
-    needs: [static, test]
+    needs: [meta, static, test]
     # 依存ジョブが失敗しても gate 自身は動かす必要がある。
     # if を書かないと、依存が1つでも失敗した時点で gate は skipped になり、
     # 必須チェックが「未報告」のまま PR が永久に待ち状態になる。
     if: always()
     timeout-minutes: 5
     steps:
+      - name: 結果をステップサマリに書く
+        env:
+          APP_VERSION: ${{ needs.meta.outputs.version }}
+          STATIC_RESULT: ${{ needs.static.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          {
+            echo "## CI 結果"
+            echo ""
+            echo "| 項目 | 値 |"
+            echo "| --- | --- |"
+            echo "| バージョン | ${APP_VERSION} |"
+            echo "| 静的検査 | ${STATIC_RESULT} |"
+            echo "| テスト | ${TEST_RESULT} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      # PR のときだけ出す案内。if でステップ単位の出し分けができる。
+      - name: PR 向けの案内を出す
+        if: github.event_name == 'pull_request'
+        run: |
+          {
+            echo ""
+            echo "カバレッジの詳細は Artifacts の \`coverage-html-*\` を開いてください。"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: 依存ジョブの結果を判定する
         env:
           DEPENDENCY_RESULTS: ${{ join(needs.*.result, ' ') }}
