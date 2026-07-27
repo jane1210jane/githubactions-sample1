@@ -26,11 +26,16 @@ git switch main                # 最新の状態に戻る
 | 1 | Python CLI に CI をつける | [stage-01](docs/stages/stage-01-python-ci.md) |
 | 2 | トリガー設計と PR ゲート | [stage-02](docs/stages/stage-02-triggers-and-pr-gate.md) |
 
-### フェーズ2以降
+### フェーズ2: 実践 CI — 速く・壊れにくく
 
-フェーズ2（高速化・品質ゲート・再利用）、フェーズ3（セキュリティ・コンテナ・AWS デプロイ）、
-フェーズ4（モノレポ・Databricks・運用）は順次追加します。
-全体像は [設計書](docs/superpowers/specs/2026-07-26-github-actions-learning-curriculum-design.md) を参照してください。
+| Stage | テーマ | 解説 |
+|---|---|---|
+| 3 | 高速化と再現性 | [stage-03](docs/stages/stage-03-speed-and-matrix.md) |
+
+### フェーズ3以降
+
+フェーズ3（セキュリティ・コンテナ・AWS デプロイ）、フェーズ4（モノレポ・Databricks・運用）は
+順次追加します。全体像は [設計書](docs/superpowers/specs/2026-07-26-github-actions-learning-curriculum-design.md) を参照してください。
 
 ## Windows で進める場合
 
