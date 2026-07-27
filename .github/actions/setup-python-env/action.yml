@@ -1,6 +1,6 @@
 # 自作の composite action。
-# 「checkout → uv セットアップ → 依存インストール」の3ステップが
-# static / test / meta で重複していたので、1つの uses: にまとめる。
+# 「uv セットアップ → 依存インストール」の2ステップが
+# static / test で重複していたので、1つの uses: にまとめる。
 #
 # checkout はこの action に含めない。composite action は呼び出し元の
 # ワークスペースでそのまま動くため、どのリポジトリを取得するかは

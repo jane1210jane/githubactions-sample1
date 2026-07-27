@@ -74,7 +74,7 @@ $env:PYTHONIOENCODING = "utf-8"
 skipped は success でも failure でもないため、必須チェックは「未報告」のままになる。
 **対処**: 集約ジョブに `if: always()` を書き、依存の結果を自分で判定して明示的に失敗させる。
 
-### `error: The requested interpreter resolved to Python 3.11.15, which is incompatible with the project's Python requirement: `>=3.12` (from `project.requires-python`)`
+### Python バージョンが `requires-python` と食い違う（ログに `which is incompatible with the project's Python requirement` と出る）
 
 **原因**: matrix に指定した Python バージョンが `pyproject.toml` の `requires-python` を満たしていない。
 本教材には `.python-version` ファイルは無く、`astral-sh/setup-uv` の `with.python-version`
@@ -95,7 +95,9 @@ matrix は「対応を宣言した範囲」と一致させる。
 
 **原因**: composite action の `run:` ステップに `shell:` を書いていない。
 ワークフローの `run:` と違い、composite action では既定値が無い。
-**対処**: `shell: bash` を付ける。Windows でも動かす必要があるなら `shell: pwsh` を検討する。
+**対処**: `shell: bash` を付ける。Windows ランナーでは Git for Windows 同梱の bash が
+使われるため、bash のままでも動く（詳しくは Stage 5 の「つまずきポイント」）。
+PowerShell 前提のコマンドを書きたいときだけ `shell: pwsh` にする。
 
 ### reusable workflow を導入したら必須チェックが報告されなくなった
 

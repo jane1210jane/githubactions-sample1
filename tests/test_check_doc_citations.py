@@ -40,6 +40,40 @@ DOC_WITH_CITATION_BUT_NO_TRANSCRIPT = """# 見出し
 本文では 2行目 を引用するが、転記ブロックが無い。
 """
 
+DOC_WITH_HYPHEN_RANGE_CITATION = """# 見出し
+
+本文では 2-4行目 を引用する。
+
+```
+  1| a
+  2| b
+  3| c
+  4| d
+```
+"""
+
+# 転記ブロックを2つ持つ文書。1つ目は1〜2行目、2つ目は10〜12行目という
+# 別々の行番号を転記している（実ファイルで別ファイルを転記する場面を模している）。
+DOC_WITH_TWO_TRANSCRIPT_BLOCKS = """# 見出し
+
+本文では 11行目 を引用する。
+
+1つ目のファイルの転記:
+
+```
+  1| name: CI
+  2| on:
+```
+
+2つ目のファイルの転記:
+
+```
+ 10| jobs:
+ 11|   test:
+ 12|     runs-on: ubuntu-latest
+```
+"""
+
 
 def test_collect_transcript_line_numbers_reads_numbered_fenced_block():
     lines = DOC_WITH_VALID_CITATION.splitlines()
@@ -171,3 +205,35 @@ def test_check_document_reports_a_missing_file(tmp_path: Path):
 
     assert len(problems) == 1
     assert "見つかりません" in problems[0].message
+
+
+def test_collect_citations_finds_hyphen_range_form():
+    """CITATION の `-` 区切り（全角の〜／～だけでなく半角ハイフンも受け付ける）を確認する。"""
+    lines = DOC_WITH_HYPHEN_RANGE_CITATION.splitlines()
+
+    citations = collect_citations(lines)
+
+    assert citations == (Citation(source_line=3, start=2, end=4),)
+
+
+def test_collect_transcript_line_numbers_merges_multiple_blocks_into_one_set():
+    """2つの転記ブロックを持つ文書での現状の挙動を記録する。
+
+    ツールは「どのブロックがどのファイルの転記か」を区別せず、文書内すべての
+    転記ブロックの行番号を1つの集合にまとめる。したがってこのテストは
+    「複数ファイルを正しく区別できる」ことの証明ではなく、区別していないという
+    現状の挙動をそのまま記録するものである。
+    """
+    lines = DOC_WITH_TWO_TRANSCRIPT_BLOCKS.splitlines()
+
+    assert collect_transcript_line_numbers(lines) == frozenset({1, 2, 10, 11, 12})
+
+
+def test_check_document_accepts_a_citation_that_only_exists_in_the_second_block(
+    tmp_path: Path,
+):
+    """2つ目の転記ブロックにしか無い行番号への引用も、ブロックの区別なく通ることを確認する。"""
+    path = tmp_path / "two-blocks.md"
+    path.write_text(DOC_WITH_TWO_TRANSCRIPT_BLOCKS, encoding="utf-8")
+
+    assert check_document(path) == ()

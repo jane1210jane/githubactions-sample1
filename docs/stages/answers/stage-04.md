@@ -62,6 +62,10 @@ FAIL Required test coverage of 80% not reached. Total coverage: 58.72%
 EXIT=1
 ```
 
+（この `python 3.14.5-final-0` はこの実験を行ったローカル環境の Python バージョンで、
+CI の matrix（3.12 / 3.13、`pyproject.toml` の `requires-python = ">=3.12"`）とは
+無関係です。この実験はローカルのみで行い、push はしていません。）
+
 （確認後、`tests/test_check_doc_citations.py` は `git diff` で変更が残っていないことを
 確認したうえで元の内容に戻しています。この実験はローカルのみで行い、push はしていません。）
 

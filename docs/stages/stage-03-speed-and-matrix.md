@@ -428,9 +428,22 @@ ls /tmp/cov-check/index.html
 - **artifact 名が重複すると上書き・失敗の原因になるため matrix の値を名前に含める。**
   108行目の `name: coverage-html-${{ matrix.os }}-${{ matrix.python-version }}` は
   matrix の値を含めているため、3レグそれぞれ `coverage-html-ubuntu-latest-3.12` のように
-  異なる名前になります。もし全レグで同じ固定名を使うと、同じ実行内で同名の artifact を
-  複数回アップロードすることになり、アップロードが失敗するか、後からアップロードした方が
-  前のものを上書きしてしまいます。
+  異なる名前になります。`actions/upload-artifact@v4` 以降（本教材は `@v7` を使用）では、
+  同じ実行内で同名の artifact を複数回アップロードするとエラーで失敗します。
+  上書きしたい場合は `overwrite: true` を明示する必要があります。
+- **`if: always()`（121行目）は、依存ジョブが `failure` になった場合だけでなく、
+  `cancelled` になった場合にも `gate` を実行します。** `concurrency.cancel-in-progress`
+  （22行目）は PR イベントで有効なため、同じブランチに連続して push すると、古い方の
+  実行の依存ジョブは `cancelled` になります。`if: always()` はこの `cancelled` な
+  依存ジョブに対しても `gate` を動かし、「依存ジョブの結果を判定する」ステップ
+  （124〜135行目）が `cancelled` を `success` 以外として検出して `exit 1` するため、
+  古い方の実行では必須チェック `Lint & Test` が**失敗**として報告されます。
+  実行 ID `30286356455` で、呼び出し先のジョブがすべて `cancelled` になり、
+  `Metadata` は `success`、`Lint & Test` は `failure` として報告される様子を
+  実際に観測しました。取り残された古い実行の `Lint & Test` が赤いままなのは
+  想定内の挙動であり、対象の PR では最新の実行が緑であれば問題ありません。
+  「失敗したときだけ動かしたい」なら、キャンセルを除外する `!cancelled()` の方が
+  `always()` より狭い条件として使えます。
 
 ## 7. 演習課題
 
