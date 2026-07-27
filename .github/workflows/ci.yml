@@ -38,8 +38,7 @@ jobs:
     name: Metadata
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    outputs:
-      version: ${{ steps.read.outputs.version }}
+    # [実験] 問3検証のため outputs.version を一時的に削除している。あとで元に戻す。
     steps:
       - name: リポジトリを取得する
         uses: actions/checkout@v7
@@ -159,6 +158,10 @@ jobs:
             echo "| 静的検査 | ${STATIC_RESULT} |"
             echo "| テスト | ${TEST_RESULT} |"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+      # [実験] 問3検証用。ステップサマリの中身をログにも出す。あとで削除する。
+      - name: "[実験] ステップサマリの中身をログに出す"
+        run: cat "${GITHUB_STEP_SUMMARY}"
 
       # PR のときだけ出す案内。if でステップ単位の出し分けができる。
       - name: PR 向けの案内を出す
