@@ -1,0 +1,88 @@
+# 再利用可能ワークフロー。
+# workflow_call で呼ばれることだけを想定しており、単体では起動しない。
+# 他リポジトリからは `uses: <owner>/<repo>/.github/workflows/reusable-python-ci.yml@<ref>`
+# として呼べる。
+name: Reusable Python CI
+
+on:
+  workflow_call:
+    inputs:
+      python-versions:
+        description: テストする Python バージョンの JSON 配列
+        required: false
+        default: '["3.12", "3.13"]'
+        type: string
+
+# permissions: このワークフローが GITHUB_TOKEN に許す操作。
+# 最小権限にしておく。なぜ必要かは Stage 6 で回収する。
+permissions:
+  contents: read
+
+env:
+  ACTIONLINT_VERSION: "1.7.12"
+
+jobs:
+  static:
+    name: Static Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: リポジトリを取得する
+        uses: actions/checkout@v7
+
+      - name: Python 環境をセットアップする
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: フォーマットを確認する
+        run: uv run ruff format --check .
+
+      - name: lint を確認する
+        run: uv run ruff check .
+
+      - name: 型を確認する
+        run: uv run mypy src tools
+
+      - name: 解説の行番号引用を検証する
+        run: uv run python tools/check_doc_citations.py docs/stages
+
+      - name: ワークフローを actionlint で検査する
+        run: |
+          docker run --rm \
+            --volume "${PWD}:/repo" \
+            --workdir /repo \
+            "rhysd/actionlint:${ACTIONLINT_VERSION}" -color
+
+  test:
+    name: Test (${{ matrix.os }} / Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        # 入力は文字列なので、fromJSON で配列に戻してから matrix に渡す。
+        python-version: ${{ fromJSON(inputs.python-versions) }}
+        exclude:
+          - os: windows-latest
+            python-version: "3.12"
+    steps:
+      - name: リポジトリを取得する
+        uses: actions/checkout@v7
+
+      - name: Python 環境をセットアップする
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: テストを実行する
+        run: uv run pytest -v --cov-report=html
+
+      - name: カバレッジ HTML を artifact として保存する
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-html-${{ matrix.os }}-${{ matrix.python-version }}
+          path: htmlcov/
+          retention-days: 7

@@ -1,0 +1,28 @@
+# 自作の composite action。
+# 「checkout → uv セットアップ → 依存インストール」の3ステップが
+# static / test / meta で重複していたので、1つの uses: にまとめる。
+#
+# checkout はこの action に含めない。composite action は呼び出し元の
+# ワークスペースでそのまま動くため、どのリポジトリを取得するかは
+# 呼び出し側が決めるべきだから。
+name: Python 環境をセットアップする
+description: uv と指定バージョンの Python を用意し、ロックファイルどおりに依存をインストールする
+
+inputs:
+  python-version:
+    description: 使用する Python のバージョン
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: uv と Python をセットアップする
+      uses: astral-sh/setup-uv@v7
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    # composite action の run: には shell の指定が必須。
+    # ワークフローの run: と違って既定値が無い。
+    - name: 依存関係をインストールする
+      run: uv sync --locked
+      shell: bash
