@@ -13,6 +13,8 @@ on:
         default: '["3.12", "3.13"]'
         type: string
 
+# permissions: このワークフローが GITHUB_TOKEN に許す操作。
+# 最小権限にしておく。なぜ必要かは Stage 6 で回収する。
 permissions:
   contents: read
 
