@@ -235,19 +235,9 @@ gh run watch "$RUN_ID" --exit-status
   違っている。この失敗はエラーも出さず**無言で壊れる**ため、貼った直後に実際の表示を
   目で確認する習慣をつけてください。
 
-- **症状**: Windows のコマンドプロンプトや PowerShell で `uv run sales-report data/sales_sample.csv`
-  を実行すると、日本語の表（月・件数・売上金額の見出しなど）が文字化けする。
-  **原因**: Windows の既定のコンソールコードページ（多くの場合 CP932）が UTF-8 でないため。
-  Python の標準出力エンコーディングはコンソールのコードページに影響されます。
-  **対処**: 実行前にコンソールを UTF-8 に切り替えるか、`PYTHONIOENCODING` を指定してください。
-
-  ```powershell
-  chcp 65001
-  # または
-  $env:PYTHONIOENCODING = "utf-8"
-  ```
-
-  詳しくは `docs/troubleshooting.md` の「日本語が文字化けする」を参照してください。
+- `uv run sales-report data/sales_sample.csv` の出力が文字化けする → プログラムの不具合ではなく、
+  Windows コンソールの文字コードの問題です。対処は README の
+  [Windows で進める場合](../../README.md#windows-で進める場合) にまとめてあります。
 
 ## 7. 演習課題
 
