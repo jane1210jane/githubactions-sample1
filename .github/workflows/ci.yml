@@ -68,9 +68,23 @@ jobs:
             "rhysd/actionlint:${ACTIONLINT_VERSION}" -color
 
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    # matrix の値を名前に入れないと、3つの実行がすべて同じ名前になって
+    # どれが落ちたのか Checks 一覧から判別できない。
+    name: Test (${{ matrix.os }} / Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    strategy:
+      # 既定は true で、1つ落ちると残りが即座にキャンセルされる。
+      # 「Windows だけ落ちるのか、両方落ちるのか」を知りたいので false にする。
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12", "3.13"]
+        # 全4通りは要らない。Windows は最新 Python だけ確認できれば十分、
+        # という判断を exclude で表現する。組み合わせ爆発は matrix の主な失敗要因。
+        exclude:
+          - os: windows-latest
+            python-version: "3.12"
     steps:
       - name: リポジトリを取得する
         uses: actions/checkout@v7
@@ -78,13 +92,22 @@ jobs:
       - name: uv と Python をセットアップする
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: 依存関係をインストールする
         run: uv sync --locked
 
       - name: テストを実行する
-        run: uv run pytest -v
+        run: uv run pytest -v --cov-report=html
+
+      # 失敗したときこそ中身を見たいので、成功時に限らず必ず上げる。
+      - name: カバレッジ HTML を artifact として保存する
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-html-${{ matrix.os }}-${{ matrix.python-version }}
+          path: htmlcov/
+          retention-days: 7
 
   # 集約ゲート。ruleset が必須チェックとして見ているのはこのジョブの name。
   # 依存ジョブの構成を変えても、この名前さえ保てば ruleset を触らずに済む。
