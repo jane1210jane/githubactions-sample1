@@ -371,9 +371,11 @@ ls /tmp/cov-check/index.html
   十分」という判断のもと `windows-latest` × `"3.12"` を除外し、実行を4通りから3通りに
   減らしています。
 - **`fail-fast: false` を選んだ理由**（77〜79行目）: `strategy.fail-fast` の既定値は `true` で、
-  matrix のどれか1つが失敗すると、GitHub は残りの実行中の matrix ジョブを即座にキャンセルします。
-  今回は「Windows だけの問題なのか、Python バージョン全体の問題なのか」を切り分けたいため、
-  `false`（79行目）にしてすべてのレグを最後まで走らせています。
+  matrix のどれか1つが失敗すると、GitHub は残りの matrix ジョブを即座にキャンセルします。
+  「残り」には、その時点で**実行中**のジョブだけでなく、ランナーの空きを待って**まだ
+  開始していない待機中（queued）**のジョブも含まれます。今回は「Windows だけの問題なのか、
+  Python バージョン全体の問題なのか」を切り分けたいため、`false`（79行目）にして
+  すべてのレグを最後まで走らせています。
 - **`timeout-minutes` の意味と既定値**（38〜39行目、75行目、122行目）: GitHub Actions の
   ジョブには `timeout-minutes` を指定しない場合の既定値があり、38行目のコメントのとおり
   **既定は360分**です。ハングしたジョブ（無限ループやプロンプト待ちなど）があると、
@@ -415,8 +417,10 @@ ls /tmp/cov-check/index.html
   クォートを外すと YAML はそれを浮動小数点数 `3.12` として解釈します。`exclude` の側の
   値が数値になり `matrix` の側の値が文字列のままだと、両者は一致せず、除外したはずの
   組み合わせが除外されないまま4通り実行される、という気付きにくいズレが起こります。
-- **Windows ランナーの既定シェルは PowerShell。`run:` に Bash 前提のコマンドを書くと落ちる。**
-  `runs-on: ${{ matrix.os }}`（74行目）で `windows-latest` になったレグでも、`run:`
+- **Windows ランナーの既定シェルは PowerShell Core（`pwsh`）。`run:` に Bash 前提の
+  コマンドを書くと落ちる。** Windows のプリインストールである Windows PowerShell
+  （`powershell.exe`）ではなく、クロスプラットフォームの PowerShell Core が既定になっている
+  点に注意してください。`runs-on: ${{ matrix.os }}`（74行目）で `windows-latest` になったレグでも、`run:`
   ステップ（97〜98行目、100〜101行目）はどちらも `uv sync --locked` /
   `uv run pytest -v --cov-report=html` という、OS を問わず動くコマンドだけにしてあります。
   Windows 固有の対処が必要な場面は README の
