@@ -145,7 +145,10 @@ def _classify(lines: Sequence[str]) -> list[tuple[str, bool]]:
 
 
 def _find_unclosed_fence(lines: Sequence[str]) -> int | None:
-    """閉じられていないコードフェンスがあれば、その開始行番号を返す。無ければ None。"""
+    """閉じられていないコードフェンスがあれば、その開始行番号を返す。無ければ None。
+
+    フェンスは入れ子にならない前提（開始・終了が単純に交互に現れる）で数えている。
+    """
     fence_start: int | None = None
     for number, line in enumerate(lines, start=1):
         if line.lstrip().startswith(FENCE_PREFIX):

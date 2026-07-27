@@ -4,7 +4,8 @@
 
 重複した「checkout → setup-uv → uv sync」の3ステップを自作の composite action にまとめ、
 CI 本体（静的検査とテスト）を `workflow_call` の reusable workflow として切り出します。
-到達点は、`ci.yml` を他リポジトリへそのまま配れる形にすることです。
+到達点は、`ci.yml` を他リポジトリへ配る形の**出発点**にすることです（他リポジトリへ
+そのまま配れる状態にはまだなっていません。理由は「つまずきポイント」で扱います）。
 
 ## 2. 前提
 
@@ -13,11 +14,13 @@ CI 本体（静的検査とテスト）を `workflow_call` の reusable workflow
 
 ## 3. なぜ必要か
 
-`stage-03` でジョブを `static` と `test` に分け、`stage-04` で `meta` が増えた結果、
-「checkout → uv セットアップ → 依存インストール」という同じ3ステップが `meta` / `static` /
-`test` の3箇所に重複していました。この重複には実害があります。たとえば `uv` のバージョンを
-固定したくなったとき、3箇所のうち1箇所だけを直して残り2箇所を直し忘れる、という事故が
-起こり得ます。コピーされたステップは、コピーした瞬間から同期が取れなくなる運命にあります。
+`stage-03` でジョブを `static` と `test` に分けた結果、「uv セットアップ → 依存インストール」
+という同じ2ステップが `static` / `test` の2箇所に重複していました（`stage-04` で増えた
+`meta` は Python 環境を使わないため、この2ステップを持っていません。手順Aの
+「`meta` ジョブは Python 環境を使わないため変更していません」も参照してください）。
+この重複には実害があります。たとえば `uv` のバージョンを固定したくなったとき、
+2箇所のうち1箇所だけを直して残り1箇所を直し忘れる、という事故が起こり得ます。
+コピーされたステップは、コピーした瞬間から同期が取れなくなる運命にあります。
 
 もう1つの動機は、このリポジトリの外にあります。会社で複数のリポジトリを持っていると、
 「同じ品質基準の CI を全部に配りたい」という要求が必ず出てきます。しかし `ci.yml` を
@@ -76,8 +79,8 @@ Stage 6 の伏線コメントを置くべきという指摘があり、2行の�
 
 ```
  1| # 自作の composite action。
- 2| # 「checkout → uv セットアップ → 依存インストール」の3ステップが
- 3| # static / test / meta で重複していたので、1つの uses: にまとめる。
+ 2| # 「uv セットアップ → 依存インストール」の2ステップが
+ 3| # static / test で重複していたので、1つの uses: にまとめる。
  4| #
  5| # checkout はこの action に含めない。composite action は呼び出し元の
  6| # ワークスペースでそのまま動くため、どのリポジトリを取得するかは
@@ -375,10 +378,18 @@ Stage 6 の伏線コメントを置くべきという指摘があり、2行の�
   例として意識しておく必要があります。シェル依存の構文（例えばパスの区切り文字や
   環境変数展開の書式）をこのステップに足すときは、Windows でも Git Bash 前提で
   書かなければなりません。
-- `uses: ./...` はローカルパス参照。**呼び出し元で checkout していないと action が
-  見つからない。** composite action は「呼び出し元のワークスペースにすでにあるファイル」
-  として読み込まれるため、`actions/checkout@v7` より前に `uses:
-  ./.github/actions/setup-python-env` を置くと失敗します。
+- `uses: ./...` の意味は、**どの階層に書くか**で変わります。**ステップの `uses: ./...`
+  （composite action、`reusable-python-ci.yml` 33〜36行目・74〜77行目）は、呼び出し元で
+  checkout していないと action が見つからずに失敗します。** composite action は
+  「呼び出し元のワークスペースにすでにあるファイル」として読み込まれるため、
+  `actions/checkout@v7` より前に `uses: ./.github/actions/setup-python-env` を
+  置くと失敗します。**一方、ジョブの `jobs.<id>.uses:`（reusable workflow、`ci.yml`
+  44〜46行目の `checks:`）は checkout を必要としません。** `jobs.<id>.uses` は
+  GitHub がリポジトリ側でワークフロー参照を解決する仕組みで、ランナーのファイル
+  システムを経由しないためです。実際 `checks:`（`ci.yml` 44〜46行目）には `steps:` も
+  checkout も無く、それでも `./.github/workflows/reusable-python-ci.yml` の呼び出しは
+  成立しています。「`uses: ./...` は checkout が要る」という一般則ではなく、
+  ステップレベル（composite action）にだけ当てはまる制約です。
 - reusable workflow を呼ぶと Checks 名が変わる。**必須チェックにしている名前が
   呼び出し先にあると、ゲートが外れる。** 前節で実測したとおり、`static` は
   `Checks / Static Checks` に変わります。ruleset が `Static Checks` という名前そのものを
@@ -394,6 +405,24 @@ Stage 6 の伏線コメントを置くべきという指摘があり、2行の�
   宣言できないため、YAML の配列ではなく**配列を表す文字列**として渡す必要があります。
 - 他リポジトリの reusable workflow を `@main` で参照すると、向こうの変更が
   予告なく自分の CI を壊す。タグかコミットで固定する。
+- **`reusable-python-ci.yml` を他リポジトリから呼び出しても、そのままでは動きません。**
+  `static` / `test` ジョブ（`reusable-python-ci.yml` 33〜36行目・74〜77行目）は
+  `uses: ./.github/actions/setup-python-env` というローカルパス参照で composite action
+  を呼んでいます。他リポジトリから `uses: jane1210jane/githubactions-sample1/
+  .github/workflows/reusable-python-ci.yml@<ref>` として呼んだ場合でも、その中の
+  `actions/checkout@v7`（`reusable-python-ci.yml` 31行目・72行目）はあくまで**呼び出し元
+  （caller）のリポジトリ**を取得するため、`./.github/actions/setup-python-env` は
+  呼び出し元の作業ツリーの中で探され、`Can't find 'action.yml'` のようなエラーで
+  失敗します（呼び出し元が自分のリポジトリに同じパスで action のコピーを
+  持っていない限り）。加えて `mypy src tools` や `check_doc_citations.py docs/stages`
+  （`reusable-python-ci.yml` 45行目・48行目）は、このリポジトリのディレクトリ構成に
+  決め打ちしたコマンドです。他リポジトリへ配りたい場合の選択肢は主に3つです。
+  (1) composite action の呼び出しをやめてステップをインライン展開する、
+  (2) composite action を専用リポジトリに切り出してタグ付きで公開し、呼び出し元
+  ワークフローからそのタグを参照する、(3) 呼び出し側リポジトリに、この action と
+  同じ相対パスでコピーを用意してもらう。いずれも「1リポジトリで動いている
+  reusable workflow」から「他リポジトリへ配れる reusable workflow」への
+  追加作業が必要で、まだそこには到達していません。
 
 ## 7. 演習課題
 
