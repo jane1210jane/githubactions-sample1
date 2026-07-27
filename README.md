@@ -32,6 +32,38 @@ git switch main                # 最新の状態に戻る
 フェーズ4（モノレポ・Databricks・運用）は順次追加します。
 全体像は [設計書](docs/superpowers/specs/2026-07-26-github-actions-learning-curriculum-design.md) を参照してください。
 
+## Windows で進める場合
+
+学習者の環境は Windows + VSCode を想定しています。WSL2 Ubuntu でも進められますが、
+Windows ネイティブのターミナルで進める場合は以下に注意してください。
+
+### 日本語が文字化けする
+
+`uv run sales-report data/sales_sample.csv` の出力が `???` や記号の羅列になる場合、
+コンソールの文字コードが UTF-8 になっていません。プログラムは壊れていません。
+
+```powershell
+chcp 65001                              # コードページを UTF-8 にする
+$env:PYTHONIOENCODING = "utf-8"         # あるいは Python 側の出力エンコーディングを指定する
+```
+
+VSCode の統合ターミナルでも同様です。設定を変えたくない場合は `uv run pytest` で
+テストを走らせれば、出力の中身は正しく検証できます（テストは端末を経由しないため影響を受けません）。
+
+### `sed` などの Unix コマンドが使えない
+
+本教材の手順には `sed -i` のような Unix コマンドが出てきます。これらは
+`cmd.exe` や PowerShell では動きません。次のいずれかで実行してください。
+
+- **Git Bash**（Git for Windows に同梱）で実行する — 最も手軽
+- **WSL2 Ubuntu** で実行する
+- エディタで直接ファイルを書き換える — 何を書き換えるかは各手順に明記してあります
+
+### パス区切り
+
+ワークフローの中は常に Linux ランナー上（`ubuntu-latest`）なので `/` を使います。
+ローカルのコマンド例も `/` で書いてあります。Git Bash と WSL2 ではそのまま動きます。
+
 ## 困ったとき
 
 [docs/troubleshooting.md](docs/troubleshooting.md) に、実際のエラーメッセージから引ける索引があります。

@@ -50,6 +50,8 @@ chcp 65001
 $env:PYTHONIOENCODING = "utf-8"
 ```
 
+詳しくは README の「Windows で進める場合」を参照。
+
 ### PR が「Expected — Waiting for status to be reported」から進まない
 
 **原因**: 必須チェックに指定した名前のジョブが、その PR では起動していない。
