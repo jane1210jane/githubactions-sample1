@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json  # [実験] 演習2検証用の未使用 import。あとで削除する。
 import re
 import sys
 from collections.abc import Iterable, Sequence
