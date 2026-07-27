@@ -60,3 +60,22 @@ $env:PYTHONIOENCODING = "utf-8"
 **対処**: `pull_request` トリガーには `paths` フィルタを付けない。
 どうしても付けたい場合は、常に成功する集約ジョブを 1 つ用意し、そちらを必須チェックにする
 （この設計はモノレポ化する Stage 9 で扱う）。
+
+### 必須チェックが「Expected — Waiting for status to be reported」のまま進まない（ジョブを分割した後）
+
+**原因**: ジョブ構成を変えた結果、ruleset が要求している名前のジョブが存在しなくなった。
+必須チェックはジョブの `name:` に紐づく。
+**対処**: 必須チェックと同じ名前を持つジョブが1つ存在するか確認する。
+本教材では集約ジョブ `gate` が `name: Lint & Test` を引き継いでいる。
+
+### 集約ジョブが skipped になり、必須チェックが報告されない
+
+**原因**: `needs:` の依存ジョブが失敗すると、既定では後続ジョブは実行されず `skipped` になる。
+skipped は success でも failure でもないため、必須チェックは「未報告」のままになる。
+**対処**: 集約ジョブに `if: always()` を書き、依存の結果を自分で判定して明示的に失敗させる。
+
+### `error: The Python request from `.python-version` resolved to Python 3.11, which is incompatible with the project's Python requirement`
+
+**原因**: matrix に指定した Python バージョンが `pyproject.toml` の `requires-python` を満たしていない。
+**対処**: matrix の値か `requires-python` のどちらかを直す。
+matrix は「対応を宣言した範囲」と一致させる。
