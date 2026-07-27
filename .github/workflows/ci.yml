@@ -61,13 +61,10 @@ jobs:
       - name: リポジトリを取得する
         uses: actions/checkout@v7
 
-      - name: uv と Python をセットアップする
-        uses: astral-sh/setup-uv@v7
+      - name: Python 環境をセットアップする
+        uses: ./.github/actions/setup-python-env
         with:
           python-version: "3.12"
-
-      - name: 依存関係をインストールする
-        run: uv sync --locked
 
       - name: フォーマットを確認する
         run: uv run ruff format --check .
@@ -112,13 +109,10 @@ jobs:
       - name: リポジトリを取得する
         uses: actions/checkout@v7
 
-      - name: uv と Python をセットアップする
-        uses: astral-sh/setup-uv@v7
+      - name: Python 環境をセットアップする
+        uses: ./.github/actions/setup-python-env
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: 依存関係をインストールする
-        run: uv sync --locked
 
       - name: テストを実行する
         run: uv run pytest -v --cov-report=html
