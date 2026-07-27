@@ -25,4 +25,3 @@ runs:
     # ワークフローの run: と違って既定値が無い。
     - name: 依存関係をインストールする
       run: uv sync --locked
-      shell: bash
