@@ -1,22 +1,17 @@
-# Stage 1 でアプリに CI を追加し、Stage 2 でトリガーを設計し直し、
-# Stage 3 でジョブを「静的検査」「テスト」「集約ゲート」の3層に分けた。
-# ruleset の必須チェック名 `Lint & Test` は集約ジョブ gate が引き継ぐ。
+# Stage 1 で CI を追加し、Stage 2 でトリガーを設計し、Stage 3 でジョブを3層に分け、
+# Stage 4 で品質ゲートを入れ、Stage 5 で検査とテストを再利用可能ワークフローへ切り出した。
+# このファイルに残っているのは「いつ動かすか」と「何を必須とするか」だけ。
 name: CI
 
 on:
-  # PR には必ず CI を走らせる。paths で絞らないのは、
-  # 必須チェックにしたときにドキュメントだけの PR が永久に待ち状態になるため。
   pull_request:
     branches: [main]
-  # main への push は、ドキュメントだけの変更なら省略してよい。
   push:
     branches: [main]
     paths-ignore:
       - "docs/**"
       - "**/*.md"
 
-# 同じブランチで新しい実行が始まったら、古い実行を止める。
-# main では途中で止めたくないので、PR のときだけキャンセルする。
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -26,14 +21,7 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  # actionlint はバージョンを固定して使う。docker タグの :latest は
-  # いつ中身が変わるか分からないため、教材としても避ける。
-  ACTIONLINT_VERSION: "1.7.12"
-
 jobs:
-  # 後続ジョブに値を渡す例。outputs はジョブ間で文字列を受け渡す唯一の仕組みで、
-  # ランナーが別マシンである以上ファイルでは渡せない（Stage 0 で確認したとおり）。
   meta:
     name: Metadata
     runs-on: ubuntu-latest
@@ -49,100 +37,28 @@ jobs:
         run: |
           version=$(grep -m1 '^version = ' pyproject.toml | cut -d '"' -f 2)
           echo "読み取ったバージョン: ${version}"
-          # $GITHUB_OUTPUT に書いた key=value が、この step の outputs になる。
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
-  static:
-    name: Static Checks
-    runs-on: ubuntu-latest
-    # ハングしたジョブが課金され続けるのを防ぐ。既定は 360 分と長い。
-    timeout-minutes: 10
-    steps:
-      - name: リポジトリを取得する
-        uses: actions/checkout@v7
-
-      - name: Python 環境をセットアップする
-        uses: ./.github/actions/setup-python-env
-        with:
-          python-version: "3.12"
-
-      - name: フォーマットを確認する
-        run: uv run ruff format --check .
-
-      - name: lint を確認する
-        run: uv run ruff check .
-
-      - name: 型を確認する
-        run: uv run mypy src tools
-
-      - name: 解説の行番号引用を検証する
-        run: uv run python tools/check_doc_citations.py docs/stages
-
-      # ワークフロー自体も検査対象にする。式の綴り間違いや存在しない
-      # コンテキスト参照は、実行してみるまで気づけないことが多い。
-      - name: ワークフローを actionlint で検査する
-        run: |
-          docker run --rm \
-            --volume "${PWD}:/repo" \
-            --workdir /repo \
-            "rhysd/actionlint:${ACTIONLINT_VERSION}" -color
-
-  test:
-    # matrix の値を名前に入れないと、3つの実行がすべて同じ名前になって
-    # どれが落ちたのか Checks 一覧から判別できない。
-    name: Test (${{ matrix.os }} / Python ${{ matrix.python-version }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    strategy:
-      # 既定は true で、1つ落ちると残りが即座にキャンセルされる。
-      # 「Windows だけ落ちるのか、両方落ちるのか」を知りたいので false にする。
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ["3.12", "3.13"]
-        # 全4通りは要らない。Windows は最新 Python だけ確認できれば十分、
-        # という判断を exclude で表現する。組み合わせ爆発は matrix の主な失敗要因。
-        exclude:
-          - os: windows-latest
-            python-version: "3.12"
-    steps:
-      - name: リポジトリを取得する
-        uses: actions/checkout@v7
-
-      - name: Python 環境をセットアップする
-        uses: ./.github/actions/setup-python-env
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: テストを実行する
-        run: uv run pytest -v --cov-report=html
-
-      # 失敗したときこそ中身を見たいので、成功時に限らず必ず上げる。
-      - name: カバレッジ HTML を artifact として保存する
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-html-${{ matrix.os }}-${{ matrix.python-version }}
-          path: htmlcov/
-          retention-days: 7
+  # 再利用可能ワークフローの呼び出し。同じリポジトリ内なので ./ で参照できる。
+  # jobs.<id>.uses を使うジョブには steps を書けない。呼び出しそのものがジョブになる。
+  checks:
+    name: Checks
+    uses: ./.github/workflows/reusable-python-ci.yml
 
   # 集約ゲート。ruleset が必須チェックとして見ているのはこのジョブの name。
-  # 依存ジョブの構成を変えても、この名前さえ保てば ruleset を触らずに済む。
+  # 呼び出し先のジョブ名は `Checks / Static Checks` のように変わるが、
+  # この名前さえ保てば ruleset を触らずに済む。
   gate:
     name: Lint & Test
     runs-on: ubuntu-latest
-    needs: [meta, static, test]
-    # 依存ジョブが失敗しても gate 自身は動かす必要がある。
-    # if を書かないと、依存が1つでも失敗した時点で gate は skipped になり、
-    # 必須チェックが「未報告」のまま PR が永久に待ち状態になる。
+    needs: [meta, checks]
     if: always()
     timeout-minutes: 5
     steps:
       - name: 結果をステップサマリに書く
         env:
           APP_VERSION: ${{ needs.meta.outputs.version }}
-          STATIC_RESULT: ${{ needs.static.result }}
-          TEST_RESULT: ${{ needs.test.result }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
         run: |
           {
             echo "## CI 結果"
@@ -150,11 +66,9 @@ jobs:
             echo "| 項目 | 値 |"
             echo "| --- | --- |"
             echo "| バージョン | ${APP_VERSION} |"
-            echo "| 静的検査 | ${STATIC_RESULT} |"
-            echo "| テスト | ${TEST_RESULT} |"
+            echo "| 検査とテスト | ${CHECKS_RESULT} |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-      # PR のときだけ出す案内。if でステップ単位の出し分けができる。
       - name: PR 向けの案内を出す
         if: github.event_name == 'pull_request'
         run: |
