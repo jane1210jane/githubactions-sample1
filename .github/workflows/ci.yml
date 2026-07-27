@@ -53,7 +53,7 @@ jobs:
         run: uv run ruff format --check .
 
       - name: lint を確認する
-        run: uv run ruff check . && exit 1
+        run: uv run ruff check .
 
       - name: 解説の行番号引用を検証する
         run: uv run python tools/check_doc_citations.py docs/stages
@@ -95,7 +95,7 @@ jobs:
     # 依存ジョブが失敗しても gate 自身は動かす必要がある。
     # if を書かないと、依存が1つでも失敗した時点で gate は skipped になり、
     # 必須チェックが「未報告」のまま PR が永久に待ち状態になる。
-    # if: always()  ← 一時的に無効化
+    if: always()
     timeout-minutes: 5
     steps:
       - name: 依存ジョブの結果を判定する
