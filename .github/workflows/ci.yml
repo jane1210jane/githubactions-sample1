@@ -169,11 +169,6 @@ jobs:
             echo "カバレッジの詳細は Artifacts の \`coverage-html-*\` を開いてください。"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-      # [実験] 演習2検証用。あとで削除する。
-      - name: "[実験] 失敗を要約に追記する"
-        if: contains(needs.*.result, 'failure')
-        run: echo "> 依存ジョブに失敗があります。上の表を確認してください。" >> "${GITHUB_STEP_SUMMARY}"
-
       - name: 依存ジョブの結果を判定する
         env:
           DEPENDENCY_RESULTS: ${{ join(needs.*.result, ' ') }}
