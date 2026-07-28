@@ -29,6 +29,11 @@ jobs:
     steps:
       - name: リポジトリを取得する
         uses: actions/checkout@v7
+        with:
+          # 既定の浅い clone だとタグを取得しない。「解説の行番号引用を検証する」が
+          # check_doc_citations.py 経由で git show <tag>:<path> を呼ぶため、
+          # 全履歴とタグを取得しておく必要がある。
+          fetch-depth: 0
 
       - name: Python 環境をセットアップする
         uses: ./.github/actions/setup-python-env

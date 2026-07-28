@@ -51,6 +51,7 @@ git switch -c stage/02-triggers
 「5. 何が変わったか」節）は、すべて**この転記ブロック内の行番号**を指しており、
 リポジトリの実ファイルを開いて数える必要はありません。
 
+<!-- transcript: .github/workflows/ci.yml @ stage-02 -->
 ```
   1| # Stage 1 でアプリに CI を追加し、Stage 2 でトリガーを設計し直した。
   2| # 現在は PR には必ず、main への push はドキュメントのみの変更を除いて
