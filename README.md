@@ -39,6 +39,14 @@ git switch main                # 最新の状態に戻る
 フェーズ3（セキュリティ・コンテナ・AWS デプロイ）、フェーズ4（モノレポ・Databricks・運用）は
 順次追加します。全体像は [設計書](docs/superpowers/specs/2026-07-26-github-actions-learning-curriculum-design.md) を参照してください。
 
+## Stage 8 に進む前に
+
+Stage 8 では実際に AWS へデプロイします。GitHub Actions が AWS に入るための一度きりの準備が
+必要で、これだけは手作業で行います（理由は手順書の冒頭に書いてあります）。
+Stage 6・7 を進めながら並行して済ませておくと、Stage 8 で待たされません。
+
+[docs/aws-bootstrap.md](docs/aws-bootstrap.md)
+
 ## Windows で進める場合
 
 学習者の環境は Windows + VSCode を想定しています。WSL2 Ubuntu でも進められますが、
