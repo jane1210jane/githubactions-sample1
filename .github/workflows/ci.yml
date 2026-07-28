@@ -20,6 +20,7 @@ concurrency:
 # 最小権限にしておく。なぜ必要かは Stage 6 で回収する。
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   meta:
