@@ -31,6 +31,10 @@ jobs:
     steps:
       - name: リポジトリを取得する
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # このワークフローは checkout 後に git push をしないので、
+          # 認証情報をワークスペースに残す必要が無い（zizmor: artipacked）。
+          persist-credentials: false
 
       - name: pyproject.toml からバージョンを読む
         id: read

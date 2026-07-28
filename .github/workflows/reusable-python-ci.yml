@@ -34,6 +34,9 @@ jobs:
           # check_doc_citations.py 経由で git show <tag>:<path> を呼ぶため、
           # 全履歴とタグを取得しておく必要がある。
           fetch-depth: 0
+          # このワークフローは checkout 後に git push をしないので、
+          # 認証情報をワークスペースに残す必要が無い（zizmor: artipacked）。
+          persist-credentials: false
 
       - name: Python 環境をセットアップする
         uses: ./.github/actions/setup-python-env
@@ -59,6 +62,11 @@ jobs:
             --workdir /repo \
             "rhysd/actionlint:${ACTIONLINT_VERSION}" -color
 
+      # actionlint は「ワークフローとして壊れていないか」を見る。
+      # zizmor は「危険な書き方をしていないか」を見る。目的が違うので両方入れる。
+      - name: ワークフローをセキュリティ観点で検査する
+        run: uv run zizmor .github/workflows/ .github/actions/
+
   test:
     name: Test (${{ matrix.os }} / Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
@@ -75,6 +83,10 @@ jobs:
     steps:
       - name: リポジトリを取得する
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # このワークフローは checkout 後に git push をしないので、
+          # 認証情報をワークスペースに残す必要が無い（zizmor: artipacked）。
+          persist-credentials: false
 
       - name: Python 環境をセットアップする
         uses: ./.github/actions/setup-python-env
