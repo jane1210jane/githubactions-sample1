@@ -216,7 +216,7 @@ gh api repos/actions/upload-artifact/git/matching-refs/tags/v --jq '.[].ref' | g
 136|           echo "すべての依存ジョブが success です"
 ```
 
-`gate` ジョブ（124〜136行目）の依存結果判定は `read -ra results <<< "${DEPENDENCY_RESULTS}"`
+`ci.yml` の `gate` ジョブ（124〜136行目）の依存結果判定は `read -ra results <<< "${DEPENDENCY_RESULTS}"`
 （129行目）でスペース区切りの文字列を配列に読み込んでからループしています（130行目）。
 これは、actionlint の Docker イメージに同梱されている shellcheck が、
 `for result in ${DEPENDENCY_RESULTS}; do`（クォートなしの単語分割）を
@@ -241,14 +241,14 @@ Static Checks   pass   15s
 Test            pass   7s
 ```
 
-actionlint のステップ（`ワークフローを actionlint で検査する`、63〜68行目）は
+`ci.yml` の actionlint のステップ（`ワークフローを actionlint で検査する`、63〜68行目）は
 `ci.yml` と Stage 0 由来の `hello.yml` の両方を検査しますが、どちらにも指摘はありませんでした。
 なお、この環境には Docker が入っておらず（`docker: command not found`）、
 ローカルでの事前確認は行わず、CI 上の `Static Checks` ジョブでの実行結果だけを見ています。
 
 ### Step 5: `if: always()` の必要性を実測する
 
-`gate` の `if: always()`（121行目）を一時的にコメントアウトし、`static` の
+`ci.yml` の `gate` の `if: always()`（121行目）を一時的にコメントアウトし、`static` の
 `lint を確認する` ステップをわざと失敗させて push しました。
 
 実行 ID `30276142870` での `gh pr checks 9` の結果です。
@@ -259,7 +259,7 @@ Lint & Test     skipping   0
 Test            pass       8s
 ```
 
-`static` が失敗すると、`needs: [static, test]`（117行目）を持つ `gate` は
+`ci.yml` の `static` が失敗すると、`needs: [static, test]`（117行目）を持つ `gate` は
 `if: always()` が無い状態では実行条件を満たさず、**failed ではなく skipped** になります。
 実行結果一覧の `gate` の行も `- Lint & Test in 0s` と表示され、失敗としてではなく
 未実行として扱われていました。skipped は success でも failure でもないため、
@@ -275,7 +275,7 @@ gh pr checks 9 --watch
 ```
 
 実行 ID `30276199312` で3つとも緑に戻ったことを確認しました。`if: always()` はこの時点で
-121行目に復元されています。
+`ci.yml` の121行目に復元されています。
 
 ### Step 7: `.gitignore` とローカルでのカバレッジ HTML 生成を確認する
 
@@ -288,7 +288,7 @@ uv run pytest -q --cov-report=html && ls htmlcov/index.html
 
 ### Step 8: push して matrix の3レグが揃うことを確認する
 
-`test` ジョブを70〜110行目の内容（matrix・artifact 保存を含む）に置き換えて push しました。
+`ci.yml` の `test` ジョブを70〜110行目の内容（matrix・artifact 保存を含む）に置き換えて push しました。
 
 ```bash
 git add .github/workflows/ci.yml
@@ -307,7 +307,7 @@ gh pr checks 9 --watch
 | Test (ubuntu-latest / Python 3.13) | pass | 14s |
 | Test (windows-latest / Python 3.13) | pass | 41s |
 
-`os: [ubuntu-latest, windows-latest]` × `python-version: ["3.12", "3.13"]`（81〜82行目）の
+`ci.yml` の `os: [ubuntu-latest, windows-latest]` × `python-version: ["3.12", "3.13"]`（81〜82行目）の
 組み合わせは本来4通りですが、`exclude`（85〜87行目）で `windows-latest` × `3.12` を除いたため、
 実際に走ったのは3レグです。`windows-latest` のレグは初回から成功し、
 このプロジェクトのテストスイートを Windows 上で動かすための追加対応は不要でした。
@@ -348,7 +348,7 @@ ls /tmp/cov-check/index.html
 
 以下の行番号は、Step 3 で転記した `ci.yml`（タグ `stage-03` 時点の内容）の行番号です。
 
-- **ジョブを3つに分けた理由と `needs:` による依存関係**（`jobs:` 34行目、`static:` 35行目、
+- **`ci.yml` でジョブを3つに分けた理由と `needs:` による依存関係**（`jobs:` 34行目、`static:` 35行目、
   `test:` 70行目、`gate:` 114行目、`needs: [static, test]` 117行目）: `static`（lint・format・
   引用検査・actionlint）と `test`（pytest）は互いの結果に依存しないため、別ジョブにすれば
   GitHub 側が自動的に**並列**に実行します。`gate` だけは `needs: [static, test]`（117行目）で
@@ -398,7 +398,7 @@ ls /tmp/cov-check/index.html
 ## 6. つまずきポイント
 
 - **matrix の値をジョブ名に入れないと、Checks 一覧で全部同じ名前になり、どれが落ちたか分からない。**
-  `test:` の `name:`（73行目）は `Test (${{ matrix.os }} / Python ${{ matrix.python-version }})`
+  `ci.yml` の `test:` の `name:`（73行目）は `Test (${{ matrix.os }} / Python ${{ matrix.python-version }})`
   のように matrix の値を埋め込んでいます。これが無いと3つのレグがすべて `Test` という
   同じ名前で並び、GitHub の Checks 一覧からはどの組み合わせが失敗したのか判別できません。
 - **matrix を入れるとジョブ名が変わるため、必須チェック名を保つ設計をしないと全 PR が

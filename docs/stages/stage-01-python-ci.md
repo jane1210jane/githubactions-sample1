@@ -189,7 +189,7 @@ gh run watch "$RUN_ID" --exit-status
 これらの行番号がずれています（Stage 2 の解説は `docs/stages/stage-02-triggers-and-pr-gate.md`
 を参照してください）。
 
-- **`uses:`**（18行目 `uses: actions/checkout@v7`、21行目 `uses: astral-sh/setup-uv@v7`）:
+- **`ci.yml` の `uses:`**（18行目 `uses: actions/checkout@v7`、21行目 `uses: astral-sh/setup-uv@v7`）:
   自分でコマンドを書く `run:` と違い、他人（ここでは GitHub 自身と astral-sh 社）が公開した
   再利用可能な処理（アクション）を呼び出す書き方です。`actions/checkout` はリポジトリの中身を
   ランナーにコピーしてくるアクションで、**Stage 0 で `ls -la` を実行しても何も表示されなかった

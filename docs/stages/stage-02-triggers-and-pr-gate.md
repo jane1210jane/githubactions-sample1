@@ -111,7 +111,7 @@ git switch -c stage/02-triggers
  56|         run: uv run pytest -v
 ```
 
-ファイル冒頭のコメント（1〜4行目）は Stage 1 で CI を追加し Stage 2 でトリガーを設計し直した
+`ci.yml` のファイル冒頭のコメント（1〜4行目）は Stage 1 で CI を追加し Stage 2 でトリガーを設計し直した
 という経緯と、現在のトリガー条件を説明しています。`permissions:`（27〜28行目）には、
 `hello.yml` と同様に「なぜ必要かは Stage 6 で回収する」というコメントを付けています。
 

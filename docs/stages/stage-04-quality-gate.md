@@ -335,7 +335,7 @@ Test (windows-latest / Python 3.13)      pass    27s
   outputs** に昇格させ、他のジョブから `needs.meta.outputs.version`（149行目）として
   参照できるようにしています。
 
-  なお、上の転記ブロック35〜36行目のコメント（「outputs はジョブ間で文字列を受け渡す
+  なお、上の `ci.yml` の転記ブロック35〜36行目のコメント（「outputs はジョブ間で文字列を受け渡す
   唯一の仕組みで、ランナーが別マシンである以上ファイルでは渡せない」）は、`stage-04`
   時点で実際にコミットされていたコメントをそのまま転記したものですが、言い過ぎです。
   ファイルを渡す手段が無いわけではなく、artifact（Stage 0・Stage 3 参照）という
@@ -371,7 +371,7 @@ Test (windows-latest / Python 3.13)      pass    27s
 - **`pyproject.toml` の `[tool.mypy]` にある `exclude = ["^tests/"]` は、現在の呼び出し方では効いていません。**
   mypy の `exclude` は、コマンドラインやスクリプト引数に**明示的に渡したパス**には
   適用されない、という仕様上の制約があります。`static` ジョブが実行しているのは
-  `uv run mypy src tools`（79行目）で、`tests` はそもそも引数に含めていないため、
+  `ci.yml` の `uv run mypy src tools`（79行目）で、`tests` はそもそも引数に含めていないため、
   `exclude` の有無にかかわらず `tests` は最初から検査対象外です。この設定は今のところ
   実害のない冗長な記述であり、`tests` を検査対象にしたくなったら `mypy .` のように
   ディレクトリを丸ごと渡す書き方に変える必要があります。
