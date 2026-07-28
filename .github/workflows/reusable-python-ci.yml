@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: リポジトリを取得する
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # 既定の浅い clone だとタグを取得しない。「解説の行番号引用を検証する」が
           # check_doc_citations.py 経由で git show <tag>:<path> を呼ぶため、
@@ -74,7 +74,7 @@ jobs:
             python-version: "3.12"
     steps:
       - name: リポジトリを取得する
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Python 環境をセットアップする
         uses: ./.github/actions/setup-python-env
@@ -86,7 +86,7 @@ jobs:
 
       - name: カバレッジ HTML を artifact として保存する
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: coverage-html-${{ matrix.os }}-${{ matrix.python-version }}
           path: htmlcov/
