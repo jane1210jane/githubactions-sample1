@@ -58,11 +58,6 @@ jobs:
     needs: [meta, checks]
     if: always()
     timeout-minutes: 5
-    # permissions の実験用: このジョブだけ PR にコメントする必要があるので、
-    # ワークフロー全体ではなくこのジョブに限定して権限を足す（zizmor: excessive-permissions）。
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - name: 結果をステップサマリに書く
         env:
@@ -99,13 +94,3 @@ jobs:
             fi
           done
           echo "すべての依存ジョブが success です"
-
-      - name: PR にコメントを書こうとする（permissions の実験）
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          # gate ジョブは checkout していないため、git remote からのリポジトリ
-          # 自動判定ができない。permissions の効果だけを見たいので明示する。
-          GH_REPO: ${{ github.repository }}
-        run: gh pr comment "${PR_NUMBER}" --body "permissions の実験"
