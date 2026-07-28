@@ -98,20 +98,3 @@ jobs:
             fi
           done
           echo "すべての依存ジョブが success です"
-
-  # Stage 6 演習・問1: env インジェクション実験（一時的。gate には needs で繋がず、
-  # 確認後に削除する）。
-  injection_experiment:
-    name: env インジェクション実験（一時的）
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: 直接埋め込み（危険な例）
-        run: |
-          echo "PR Title (direct): ${{ github.event.pull_request.title }}"
-
-      - name: env 経由（安全な例）
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          echo "PR Title (env): ${PR_TITLE}"
