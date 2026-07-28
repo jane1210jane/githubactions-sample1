@@ -103,13 +103,21 @@ def collect_citations(lines: Sequence[str], names: frozenset[str]) -> tuple[Cita
 
     `names` に含まれるファイル名（basename）が本文に現れるたびに「今どのファイルの
     話をしているか」を更新し、以降の引用の `file_hint` として使う。同じ行の中で
-    引用より前に現れたファイル名を優先し、同じ行に無ければ、文書内でそれまでに
-    現れた最後のファイル名を引き継ぐ。1つも無ければ `None`。
+    引用より前に現れたファイル名を優先し、同じ行に無ければ、**同じ段落内**でそれまでに
+    現れた最後のファイル名を引き継ぐ。空行・見出し行（`#` で始まる行）は段落の区切りと
+    みなし、そこで引き継ぎをリセットする。段落をまたいだ引き継ぎは行わない
+    （数段落前に名指しされたファイルを、無関係な段落の引用にまで引き継いでしまうと、
+    引用先ファイルを判別できるようにするという宣言の目的を果たせないため）。
+    段落内に1つも無ければ `None`。
     """
     name_pattern = _build_name_pattern(names)
     citations: list[Citation] = []
     current_hint: str | None = None
     for source_line, line in _prose_lines(lines):
+        if line.strip() == "" or line.lstrip().startswith("#"):
+            # 空行・見出し行で段落が変わったとみなし、ファイル名の引き継ぎをリセットする。
+            current_hint = None
+            continue
         if DECLARATION.match(line):
             # 出所宣言そのものはファイル名の「言及」として数えない。
             # 宣言コメントにはファイル名の文字列がそのまま含まれるため、
@@ -143,8 +151,7 @@ def check_document(path: Path, read_source: SourceReader) -> tuple[Problem, ...]
 
     problems: list[Problem] = []
 
-    undeclared_line = _find_undeclared_transcript(lines)
-    if undeclared_line is not None:
+    for undeclared_line in _find_undeclared_transcripts(lines):
         problems.append(
             Problem(
                 path,
@@ -297,12 +304,13 @@ def _preceding_declaration(lines: Sequence[str], fence_start: int) -> tuple[int,
     return None
 
 
-def _find_undeclared_transcript(lines: Sequence[str]) -> int | None:
-    """出所宣言を伴わない番号付きフェンスがあれば、その開始行番号を返す。無ければ None。"""
-    for fence_start, _, _ in _iter_numbered_fence_blocks(lines):
-        if _preceding_declaration(lines, fence_start) is None:
-            return fence_start
-    return None
+def _find_undeclared_transcripts(lines: Sequence[str]) -> tuple[int, ...]:
+    """出所宣言を伴わない番号付きフェンスの開始行番号を、すべて文書に現れる順で返す。"""
+    return tuple(
+        fence_start
+        for fence_start, _, _ in _iter_numbered_fence_blocks(lines)
+        if _preceding_declaration(lines, fence_start) is None
+    )
 
 
 def _first_mismatch(body: tuple[str, ...], source_lines: tuple[str, ...]) -> int | None:

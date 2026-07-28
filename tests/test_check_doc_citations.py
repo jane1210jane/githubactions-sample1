@@ -399,3 +399,98 @@ def test_git_source_reader_returns_none_for_an_unknown_tag(tmp_path):
     read = git_source_reader(tmp_path)
 
     assert read("nope.yml", "no-such-tag") is None
+
+
+# --- レビュー修正1: file_hint の引き継ぎを段落内に限定する ---
+
+DOC_WITH_UNRELATED_PARAGRAPH_BETWEEN_MENTION_AND_CITATION = """# 見出し
+
+<!-- transcript: a.yml @ stage-01 -->
+```
+  1| name: A
+  2| on: push
+```
+
+<!-- transcript: c.yml @ stage-01 -->
+```
+  1| name: C
+  2| on: push
+  3| jobs: {}
+```
+
+まず `a.yml` について説明する。
+
+これは無関係な段落である。
+
+ところで 2行目 が重要だ。
+"""
+
+
+def test_check_document_does_not_carry_a_file_hint_across_paragraphs(tmp_path):
+    """段落をまたいだファイル名の引き継ぎは行わず、無名の引用として報告されることを確認する。
+
+    レビューで再現された回帰（フェーズ2の穴1の再発）: `a.yml` を名指しした段落から、
+    間に無関係な段落を挟んで数段落後に現れる無名の「2行目」引用にまで `a.yml` が
+    引き継がれ、`a.yml` にたまたま2行目が存在するために誤って通っていた。引き継ぎの
+    範囲を段落内に限定したことで、この引用は「どのファイルの引用か判別できない」
+    として報告されるべきである。
+    """
+    path = tmp_path / "unrelated-paragraph.md"
+    path.write_text(DOC_WITH_UNRELATED_PARAGRAPH_BETWEEN_MENTION_AND_CITATION, encoding="utf-8")
+    reader = _reader(
+        {
+            ("a.yml", "stage-01"): ("name: A", "on: push"),
+            ("c.yml", "stage-01"): ("name: C", "on: push", "jobs: {}"),
+        }
+    )
+
+    problems = check_document(path, reader)
+
+    assert len(problems) == 1
+    assert "どのファイル" in problems[0].message
+
+
+DOC_WITH_MULTILINE_PARAGRAPH_CITATION = """# 見出し
+
+<!-- transcript: p.yml @ stage-01 -->
+```
+  1| name: P
+  2| on: push
+  3| jobs: {}
+```
+
+`p.yml` の内容について、
+続く行で 3行目 に触れる。
+"""
+
+
+def test_check_document_carries_a_file_hint_within_the_same_paragraph(tmp_path):
+    """段落内であれば、改行をまたいでもファイル名の引き継ぎが引き続き効くことを確認する。
+
+    段落をまたいだ引き継ぎを止めた修正1が、同じ段落内での引き継ぎ（同じ行に無くても
+    直前の行にファイル名があれば解決する）まで壊していないことを確認する。
+    """
+    path = tmp_path / "multiline-paragraph.md"
+    path.write_text(DOC_WITH_MULTILINE_PARAGRAPH_CITATION, encoding="utf-8")
+    reader = _reader({("p.yml", "stage-01"): ("name: P", "on: push", "jobs: {}")})
+
+    assert check_document(path, reader) == ()
+
+
+# --- レビュー修正2: 宣言漏れの転記ブロックをすべて報告する ---
+
+
+def test_check_document_reports_every_undeclared_transcript_block(tmp_path):
+    """宣言漏れの転記ブロックが複数あれば、最初の1件だけでなくすべて報告することを確認する。"""
+    doc = (
+        "# 見出し\n\n"
+        "```\n  1| name: A\n  2| on: push\n```\n\n"
+        "```\n  1| name: B\n  2| on: pull_request\n```\n"
+    )
+    path = tmp_path / "two-undeclared.md"
+    path.write_text(doc, encoding="utf-8")
+
+    problems = check_document(path, _reader({}))
+
+    assert len(problems) == 2
+    assert all("宣言" in problem.message for problem in problems)
