@@ -61,12 +61,17 @@ export EXEC_ROLE_NAME=sales-report-etl-lambda-role
 export ECR_REPO_NAME=sales-report
 export BUCKET_NAME=sales-report-etl-${ACCOUNT_ID}
 export FUNCTION_NAME=sales-report-etl
+export OIDC_PROVIDER_ARN="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com"
 
 echo "ACCOUNT_ID=$ACCOUNT_ID"
 ```
 
 `ACCOUNT_ID` が空や `None` になっていたら、CloudShell がまだ認証情報を取得できていません。
 少し待つか、CloudShell を再起動してください。
+
+**注意**: `OWNER`/`REPO` だけでは、後で使う `sub`（3.2 節）を組み立てられません。
+GitHub が発行する `sub` クレームには、リポジトリ名だけでなく数値の ID が入る場合があり、
+その ID は `OWNER`/`REPO` の文字列からは導出できないためです。3.2 節で別途確認します。
 
 ### 3.1 GitHub の OIDC プロバイダを登録する
 
@@ -88,10 +93,10 @@ aws iam list-open-id-connect-providers \
 TLS証明書のサムプリントを手で渡す必要がありましたが、現在の IAM はプロバイダのサーバー証明書から
 上位 CA のサムプリントを自動取得するため、渡しても無視されます。
 
-登録できたら、後で使うために ARN を控えます。
+この ARN は 3.0 節ですでに `OIDC_PROVIDER_ARN` として組み立ててあります（アカウント ID から
+機械的に決まる値なので、実際に作成する前でも組み立てられます）。
 
 ```bash
-export OIDC_PROVIDER_ARN="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com"
 echo "$OIDC_PROVIDER_ARN"
 ```
 
@@ -101,7 +106,29 @@ GitHub Actions のワークフローが `sts:AssumeRoleWithWebIdentity` で引�
 **信頼ポリシーの `Condition` にある `sub`（subject）の値が、このロールの安全性そのもの**
 なので、じっくり読んでください。
 
+`sub` の正しい値を決めるために、まずこのリポジトリの OIDC subject claim の実際の形を
+確認します（なぜこの確認が要るかは、次の見出し「なぜ `sub` をこの値にするか」で
+説明します）。**GitHub CLI が使える環境**（CloudShell である必要はありません。手元の
+PC や Codespaces でも構いません）で次を実行してください。
+
 ```bash
+gh api repos/jane1210jane/githubactions-sample1/actions/oidc/customization/sub --jq .sub_claim_prefix
+```
+
+本書作成時点（2026-07-29）でこのコマンドを実行すると、次の値が返ります。
+
+```
+repo:jane1210jane@84302077/githubactions-sample1@1312756463
+```
+
+**この値は自分でも必ず再確認してください。** 以降は CloudShell 側の作業です。上のコマンドの
+出力を `SUB_CLAIM_PREFIX` に設定し、`main` ブランチへの参照を付け足した `SUB_CLAIM` を作ります。
+
+```bash
+export SUB_CLAIM_PREFIX="repo:jane1210jane@84302077/githubactions-sample1@1312756463"  # 上のコマンドの出力に置き換える
+export SUB_CLAIM="${SUB_CLAIM_PREFIX}:ref:refs/heads/main"
+echo "$SUB_CLAIM"
+
 cat > trust-policy.json <<JSON
 {
   "Version": "2012-10-17",
@@ -113,7 +140,7 @@ cat > trust-policy.json <<JSON
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:${OWNER}/${REPO}:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub": "${SUB_CLAIM}"
         }
       }
     }
@@ -132,47 +159,76 @@ echo "$DEPLOY_ROLE_ARN"
 #### なぜ `sub` をこの値にするか
 
 GitHub が発行する OIDC トークンの `sub` クレームは、ワークフローが**何によって・どの ref に対して**
-起動されたかを表す文字列です。代表的な形は次のとおりです。
+起動されたかを表す文字列です。代表的な形は次のとおりです（`<prefix>` は
+`repo:<OWNER>@<owner id>/<REPO>@<repo id>` の部分を指します。この ID 入りの形になる理由は
+このあとの「immutable subject claim について」で説明します）。
 
 | トリガー | `sub` の形 |
 |---|---|
-| `push`（ブランチへの push） | `repo:<OWNER>/<REPO>:ref:refs/heads/<branch>` |
-| `pull_request` | `repo:<OWNER>/<REPO>:pull_request` |
-| `workflow_dispatch`（手動実行） | `repo:<OWNER>/<REPO>:ref:refs/heads/<dispatch した ref>` |
-| ジョブが `environment:` を指定している場合 | どのトリガーでも `repo:<OWNER>/<REPO>:environment:<環境名>` |
+| `push`（ブランチへの push） | `<prefix>:ref:refs/heads/<branch>` |
+| `pull_request` | `<prefix>:pull_request` |
+| `workflow_dispatch`（手動実行） | `<prefix>:ref:refs/heads/<dispatch した ref>` |
+| ジョブが `environment:` を指定している場合 | どのトリガーでも `<prefix>:environment:<環境名>` |
 
 Stage 8 のデプロイワークフロー（Task 10 で追加）は `main` への `push` と、ロールバック用の
 `workflow_dispatch` の2つで起動します。`workflow_dispatch` は「その時点でワークフロー定義が
 存在するブランチ」から実行するのが通常で、マージ後は `main` 以外から実行する意味がありません。
 つまり実際に起動される2パターンはどちらも ref が `refs/heads/main` になるため、
-**`repo:${OWNER}/${REPO}:ref:refs/heads/main` という1つの条件でこの2つのトリガーを
+**`${SUB_CLAIM_PREFIX}:ref:refs/heads/main` という1つの条件でこの2つのトリガーを
 どちらもカバーできます**。`environment:` は使わない設計なので、その形は考慮していません。
 
-これを `repo:${OWNER}/${REPO}:*` のように緩めると、**このリポジトリの任意のブランチ・
-任意の PR からロールを引き受けられてしまいます。** 特に `pull_request` を含めてしまうと、
-このリポジトリに PR を送れる人（fork からの PR も含めて `pull_request_target` を使わない限りは
-本人の変更したコードは実行されませんが、設定次第では危険です）が AWS の資格情報を得る経路を
-作ることになります。逆に、狭すぎて `push` の形しか許可しないと、`workflow_dispatch` での
-ロールバックが認証エラーで失敗します。上記の1条件は、この両方を満たす最小の範囲です。
+これを `${SUB_CLAIM_PREFIX}:*` のように緩めると、**このリポジトリの任意のブランチ・
+任意の PR からロールを引き受けられてしまいます。** 特に `pull_request` を含めてしまうと
+危険です。**`pull_request` でトリガーされたワークフローは、fork から送られた PR であっても、
+その fork のコードを実際にチェックアウトして実行します**（「fork のコードは動かない」という
+思い込みは誤りです）。それでも致命的にならないのは、GitHub 側が別の防御として、
+fork からの `pull_request` トリガーには読み取り専用の `GITHUB_TOKEN` しか渡さず、
+リポジトリのシークレットも、OIDC の `id-token`（このロールを引き受けるために必要なトークン）も
+渡さないためです。つまり今回の危険は「fork のコードが動くこと」自体ではなく、「`sub` の条件を
+広げて GitHub 側のこの防御に頼り切ってしまうこと」にあります。trust policy 側でも
+`ref:refs/heads/main` に絞ることで、二重の防御にしています。（余談: `pull_request_target` は
+これとは逆に、ベースブランチ側のワークフロー定義がシークレット付きで動く一方、既定では
+ベースブランチのコードしかチェックアウトしません。もし `pull_request_target` のワークフローが
+誤って fork 側のコードをチェックアウトして実行するステップを含んでいたら、そのコードが
+シークレットにアクセスできてしまう、という別の危険があります。今回の `deploy.yml` は
+`pull_request_target` を使わないので、この危険自体は関係ありません。）
 
-> **確認が必要な注記（immutable subject claim）**: GitHub は2026年に、`sub` クレームに
-> リポジトリ・オーナーの数値 ID を焼き込む「immutable subject claim」という設定を
-> リポジトリ単位で追加しました（有効時は `repo:${OWNER}/${REPO}:ref:...` ではなく
-> `repo:${OWNER}@<owner id>/${REPO}@<repo id>:ref:...` という形になります）。
-> **この手順書の作成時点（2026-07-29）で `gh api repos/jane1210jane/githubactions-sample1/actions/oidc/customization/sub`
-> を実行して確認したところ、`use_immutable_subject: false` でした。** つまり現時点では
-> 上記の（ID を含まない）通常形式で問題ありません。ただしこれはリポジトリ側の設定で
-> 変更できるため、信頼ポリシーを作る直前に、GitHub CLI が使える環境（CloudShell である
-> 必要はありません）から念のため次のコマンドで再確認してください。
->
-> ```bash
-> gh api repos/jane1210jane/githubactions-sample1/actions/oidc/customization/sub
-> ```
->
-> もし `use_immutable_subject` が `true` になっていたら、上の `trust-policy.json` の
-> `sub` の値を `repo:jane1210jane@84302077/githubactions-sample1@1312756463:ref:refs/heads/main`
-> （オーナー ID `84302077`、リポジトリ ID `1312756463` は本書作成時点でこのリポジトリに
-> 実際に割り当てられている値）に置き換えてください。
+上記の1条件で、`push` と `workflow_dispatch` の両方を過不足なくカバーできます。
+
+#### immutable subject claim について（この手順書の `sub` が ID 入りである理由）
+
+GitHub は2026年に、`sub` クレームにリポジトリ・オーナーの数値 ID を焼き込む
+「immutable subject claim」という形式を導入しました。**2026-07-15 以降に作成された
+リポジトリは、自動的にこの ID 入りの形式でトークンを発行します。** 名前は変更・再利用が
+起こり得ますが、数値 ID は変わらないため、リポジトリ名やオーナー名を再利用した第三者が
+古い信頼ポリシーを乗っ取れないようにする、というのがこの変更の狙いです。
+
+このリポジトリの `created_at` は `2026-07-26T11:49:43Z` で、カットオフより後に作成されています。
+そのため `sub` は自動的に ID 入りの形式になり、`repo:jane1210jane/githubactions-sample1:ref:...`
+という ID なしの旧形式では**永久に一致しません**。信頼ポリシーの `sub` を旧形式のまま書くと、
+GitHub Actions は正しいトークンを送っているのに AWS 側が一致と判定できず、
+`AssumeRoleWithWebIdentity` が常に拒否される、という分かりにくい失敗になります。
+
+**確認には `sub_claim_prefix` フィールドを使ってください。** `gh api
+repos/<OWNER>/<REPO>/actions/oidc/customization/sub` の応答には `use_default` /
+`use_immutable_subject` / `sub_claim_prefix` の3つのフィールドがありますが、
+**`use_immutable_subject` は「2026-07-15 より前に作られたリポジトリが、免除を明示的に
+オプトインしたかどうか」を表す切り替えフラグであり、カットオフ後に自動適用されている
+かどうかを表すものではありません。** 実際にこのリポジトリで確認すると、
+
+```
+{"use_default":true,"use_immutable_subject":false,"sub_claim_prefix":"repo:jane1210jane@84302077/githubactions-sample1@1312756463"}
+```
+
+のように `use_immutable_subject` は `false` のままですが、`sub_claim_prefix` には
+ID 入りの値が入っています。**`sub_claim_prefix` は経路によらず、現在実際に発行される
+`sub` の接頭辞を表す権威的な値です。** `use_immutable_subject` の値だけを見て
+「`false` だから旧形式のはず」と判断すると、このリポジトリのように誤ります
+（本書の以前の版はこの誤りをしていました）。
+
+**信頼ポリシーを作る直前に、自分でも `sub_claim_prefix` を再確認してください。** リポジトリの
+設定や GitHub 側の挙動が将来変わる可能性があるためです。3.2 節冒頭のコマンドで再取得した値が
+上と異なっていたら、その値を使ってください。
 
 ### 3.3 Lambda の実行ロールを作る
 
@@ -225,6 +281,12 @@ cat > lambda-s3-policy.json <<JSON
       "Effect": "Allow",
       "Action": ["s3:GetObject", "s3:PutObject"],
       "Resource": "arn:aws:s3:::${BUCKET_NAME}/*"
+    },
+    {
+      "Sid": "SalesReportBucketList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::${BUCKET_NAME}"
     }
   ]
 }
@@ -243,11 +305,18 @@ aws iam put-role-policy \
 ```bash
 aws ecr create-repository \
   --repository-name "$ECR_REPO_NAME" \
-  --image-scanning-configuration scanOnPush=true
+  --image-scanning-configuration scanOnPush=true \
+  --region "$REGION"
 
 export ECR_REPO_ARN="arn:aws:ecr:${REGION}:${ACCOUNT_ID}:repository/${ECR_REPO_NAME}"
 echo "$ECR_REPO_ARN"
 ```
+
+`--region` を明示しているのは、CloudShell の既定リージョンが `ap-northeast-1` から
+ずれていた場合に、実際に作られるリポジトリのリージョンと、あとで組み立てる
+`ECR_REPO_ARN`（`$REGION` から機械的に組み立てた値）が食い違うのを防ぐためです。
+ずれると「存在しない ARN を指す IAM ポリシー」ができてしまい、原因が分かりにくい
+権限エラーになります。
 
 ### 3.5 入出力用の S3 バケットを作る
 
@@ -288,14 +357,18 @@ cat > deploy-role-policy.json <<JSON
       "Resource": "*"
     },
     {
-      "Sid": "EcrPushToSalesReport",
+      "Sid": "EcrPushAndImageRetrievalSetup",
       "Effect": "Allow",
       "Action": [
         "ecr:BatchCheckLayerAvailability",
         "ecr:InitiateLayerUpload",
         "ecr:UploadLayerPart",
         "ecr:CompleteLayerUpload",
-        "ecr:PutImage"
+        "ecr:PutImage",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:GetRepositoryPolicy",
+        "ecr:SetRepositoryPolicy"
       ],
       "Resource": "${ECR_REPO_ARN}"
     },
@@ -304,6 +377,7 @@ cat > deploy-role-policy.json <<JSON
       "Effect": "Allow",
       "Action": [
         "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
         "lambda:CreateFunction",
         "lambda:UpdateFunctionCode",
         "lambda:PublishVersion",
@@ -311,7 +385,10 @@ cat > deploy-role-policy.json <<JSON
         "lambda:CreateAlias",
         "lambda:UpdateAlias"
       ],
-      "Resource": "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${FUNCTION_NAME}"
+      "Resource": [
+        "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${FUNCTION_NAME}",
+        "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:${FUNCTION_NAME}:*"
+      ]
     },
     {
       "Sid": "PassExecutionRoleToLambda",
@@ -339,7 +416,17 @@ aws iam put-role-policy \
 ARN だけに絞れます。「絞れるものは絞り、絞れないものは絞れない理由を説明できる」状態が
 最小権限です。
 
-同様に、Lambda 側は `sales-report-etl` という関数名の ARN に絞り、`iam:PassRole` は
+**`EcrPushAndImageRetrievalSetup` に push 用の5アクションだけでなく `BatchGetImage` /
+`GetDownloadUrlForLayer` / `GetRepositoryPolicy` / `SetRepositoryPolicy` も入っている理由**は
+3.7 節で説明します（コンテナイメージの Lambda 関数を新規作成するときに必要になる、
+push とは別の操作です）。これらもすべて `sales-report` リポジトリの ARN だけに絞れます。
+
+Lambda 側は `sales-report-etl` という関数の ARN（無修飾の ARN と、バージョン・エイリアスを
+含む修飾 ARN の両方）に絞っています。`lambda:GetFunctionConfiguration` は
+`lambda:GetFunction` とは別の API 権限で、Task 10 のデプロイワークフローが
+`aws lambda wait function-updated` でコード更新の完了を待つ際に内部で使います
+（`update-function-code` の直後に待たずに `publish-version` すると
+`ResourceConflictException` になるため、この待ち合わせが必要です）。`iam:PassRole` は
 Lambda の実行ロール（`sales-report-etl-lambda-role`）1つだけに絞っています。
 `iam:PassRole` を `Resource: "*"` にすると、このロールを乗っ取った攻撃者は
 **アカウント内の任意のロール**（管理者ロールを含む）を Lambda に渡して起動でき、
@@ -381,6 +468,18 @@ Lambda のコンテナイメージ関数は、ECR に**イメージが実際に 
 `lambda:UpdateFunctionCode` だけでなく `lambda:CreateFunction` と、実行ロールを
 渡すための `iam:PassRole` も含めています。学習者側でやることは、ここまでの
 準備だけです。
+
+**`CreateFunction` にはイメージの push とは別の ECR 権限も要ります。** コンテナイメージの
+Lambda 関数を新規作成すると、Lambda は「自分自身がこの ECR リポジトリからイメージを
+取得してよい」というリソースベースポリシー（`LambdaECRImageRetrievalPolicy`）を
+そのリポジトリに自動で設定しようとします。この自動設定を行うには、`CreateFunction` を
+呼ぶ側（＝デプロイ用ロール）が `ecr:GetRepositoryPolicy` と `ecr:SetRepositoryPolicy` を
+持っている必要があり、Lambda が設定するポリシーの中身が `ecr:BatchGetImage` と
+`ecr:GetDownloadUrlForLayer` を含むため、呼び出し側にも同じ2つの権限が要ります。
+これが3.6節の `EcrPushAndImageRetrievalSetup` に push 用の5アクションだけでなく
+この4つも入っている理由です。ここが抜けていると、**イメージの push 自体は成功するのに、
+`CreateFunction` の呼び出しだけが ECR 権限エラーで失敗する**という、原因を特定しにくい
+壊れ方をします。
 
 ## 4. 確認
 
@@ -436,10 +535,10 @@ GitHub Actions のシークレットとして設定すれば十分で、それ�
 
 ```bash
 # 1. Lambda 関数（Stage 8 でワークフローが作っていれば削除する。無ければこのコマンドは失敗するので無視してよい）
-aws lambda delete-function --function-name "$FUNCTION_NAME"
+aws lambda delete-function --function-name "$FUNCTION_NAME" --region "$REGION"
 
 # 2. ECR リポジトリ（--force で中のイメージごと削除する）
-aws ecr delete-repository --repository-name "$ECR_REPO_NAME" --force
+aws ecr delete-repository --repository-name "$ECR_REPO_NAME" --force --region "$REGION"
 
 # 3. S3 バケット（先に中身を空にしてからでないと削除できない）
 aws s3 rm "s3://${BUCKET_NAME}" --recursive
