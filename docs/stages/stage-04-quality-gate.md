@@ -127,6 +127,7 @@ Test (windows-latest / Python 3.13)      pass    27s
 以降の行番号は、**このステージ完了時点（タグ `stage-04`）の `ci.yml` を転記したブロック**の
 行番号を指します。リポジトリの実ファイルを開いて数える必要はありません。
 
+<!-- transcript: .github/workflows/ci.yml @ stage-04 -->
 ```
   1| # Stage 1 でアプリに CI を追加し、Stage 2 でトリガーを設計し直し、
   2| # Stage 3 でジョブを「静的検査」「テスト」「集約ゲート」の3層に分けた。

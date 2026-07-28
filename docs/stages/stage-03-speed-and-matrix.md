@@ -76,6 +76,7 @@ gh api repos/actions/upload-artifact/git/matching-refs/tags/v --jq '.[].ref' | g
 本ドキュメント内の行番号の引用（このステップ以降すべて）は、**この転記ブロック内の行番号**を
 指しており、リポジトリの実ファイルを開いて数える必要はありません。
 
+<!-- transcript: .github/workflows/ci.yml @ stage-03 -->
 ```
   1| # Stage 1 でアプリに CI を追加し、Stage 2 でトリガーを設計し直し、
   2| # Stage 3 でジョブを「静的検査」「テスト」「集約ゲート」の3層に分けた。

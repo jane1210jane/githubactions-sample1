@@ -77,6 +77,7 @@ Stage 6 の伏線コメントを置くべきという指摘があり、2行の�
 
 `action.yml`（`.github/actions/setup-python-env/action.yml`）:
 
+<!-- transcript: .github/actions/setup-python-env/action.yml @ stage-05 -->
 ```
  1| # 自作の composite action。
  2| # 「uv セットアップ → 依存インストール」の2ステップが
@@ -110,6 +111,7 @@ Stage 6 の伏線コメントを置くべきという指摘があり、2行の�
 
 `ci.yml`（`.github/workflows/ci.yml`）:
 
+<!-- transcript: .github/workflows/ci.yml @ stage-05 -->
 ```
  1| # Stage 1 で CI を追加し、Stage 2 でトリガーを設計し、Stage 3 でジョブを3層に分け、
  2| # Stage 4 で品質ゲートを入れ、Stage 5 で検査とテストを再利用可能ワークフローへ切り出した。
@@ -207,6 +209,7 @@ Stage 6 の伏線コメントを置くべきという指摘があり、2行の�
 
 `reusable-python-ci.yml`（`.github/workflows/reusable-python-ci.yml`）:
 
+<!-- transcript: .github/workflows/reusable-python-ci.yml @ stage-05 -->
 ```
  1| # 再利用可能ワークフロー。
  2| # workflow_call で呼ばれることだけを想定しており、単体では起動しない。
