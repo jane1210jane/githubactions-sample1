@@ -75,7 +75,8 @@ GraphQL: Resource not accessible by integration (addComment)
 ```
 
 続けて、トップレベルの `permissions` に `pull-requests: write` を足すことも試しましたが、
-この変更は `zizmor` の `excessive-permissions`（後述）に高信頼度で拒否されたため、代わりに
+この変更は `zizmor` の `excessive-permissions`（後述）が `high` の severity（`error`、
+終了コード `14`）として報告し拒否したため、代わりに
 `gate` ジョブだけに job-scoped の `permissions: { contents: read, pull-requests: write }`
 を足したところ成功し、実際に PR #21 へ `github-actions` bot 名義のコメントが投稿された
 ことを確認しました（確認後は削除済み）。最終的に、実験ステップと job-scoped
