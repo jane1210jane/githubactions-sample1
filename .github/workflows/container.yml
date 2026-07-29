@@ -1,0 +1,106 @@
+# Stage 7: アプリをコンテナにして GHCR へ置く。
+# CI（検査とテスト）とは別のワークフローにしてある。目的が違い、
+# 走らせたいタイミングも違うため。
+name: Container
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# ワークフロー全体では読み取りだけを許す。GHCR への書き込み権限は
+# 必要なジョブにだけ足す（Stage 6 で学んだ原則）。
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/sales-report
+
+jobs:
+  build:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # GHCR へ push するにはパッケージへの書き込み権限が要る。
+    # ワークフロー全体ではなくこのジョブだけに足す。
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: リポジトリを取得する
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # buildx を使うと、レイヤキャッシュを外部に出し入れできるようになる。
+      - name: Docker Buildx を用意する
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
+
+      # レイヤキャッシュを actions/cache で自分で管理する。
+      # Stage 3 では setup-uv がキャッシュを自動で面倒みてくれていたが、
+      # ここでは保存先と鍵を自分で決める。
+      #
+      # 復元（restore）と保存（save）を actions/cache/restore と
+      # actions/cache/save に分けている。ひとまとめの actions/cache は
+      # ジョブの最後に自動でキャッシュを保存するため、pull_request で
+      # 走らせても保存が行われてしまう。GHCR への push・ログインを
+      # pull_request では行わないのと同じ理由で、キャッシュへの書き込みも
+      # 信頼できるコンテキスト（push / workflow_dispatch）に限定したい。
+      - name: レイヤキャッシュを復元する
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /tmp/.buildx-cache
+          # Dockerfile と依存定義が変わればキャッシュを作り直す。
+          key: buildx-${{ runner.os }}-${{ hashFiles('Dockerfile', 'uv.lock', 'pyproject.toml') }}
+          # 完全一致が無ければ、同じ OS の直近のキャッシュから始める。
+          restore-keys: |
+            buildx-${{ runner.os }}-
+
+      - name: GHCR にログインする
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: イメージをビルドする（必要なら push する）
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
+        with:
+          context: .
+          # PR では push しない。フォークからの PR に書き込み権限は渡らないため、
+          # push しようとすると必ず失敗する。
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      # cache-to をそのまま同じディレクトリに書くとキャッシュが際限なく育つ。
+      # 新しいものと入れ替える。
+      - name: レイヤキャッシュを入れ替える
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      # 保存は pull_request では行わない。フォークや未信頼な変更から
+      # 送られてきた PR がキャッシュに書き込めてしまうと、後で信頼できる
+      # push / workflow_dispatch のビルドがその内容を復元してしまう
+      # （cache poisoning）。書き込み経路そのものを信頼できるコンテキストに
+      # 限定することで、この経路を塞ぐ。
+      - name: レイヤキャッシュを保存する
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-${{ runner.os }}-${{ hashFiles('Dockerfile', 'uv.lock', 'pyproject.toml') }}
