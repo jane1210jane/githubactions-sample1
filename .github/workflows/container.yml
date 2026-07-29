@@ -49,12 +49,16 @@ jobs:
       # Stage 3 では setup-uv がキャッシュを自動で面倒みてくれていたが、
       # ここでは保存先と鍵を自分で決める。
       #
-      # 鍵は run ごとに変える（github.sha ではなく実行のたびに変わる値を使う）。
-      # Dockerfile・依存定義のハッシュを鍵にすると、内容が変わらない限り同じ鍵に
-      # なり、restore が完全一致した直後に同じ鍵で save しようとして
-      # 「Unable to reserve cache with key ...」で失敗し続ける（actions/cache の
-      # 鍵は一度書いたら不変で上書きできないため）。restore-keys の前方一致で
-      # 直近のキャッシュを拾えば、鍵が変わっても再利用性は落ちない。
+      # 鍵は Dockerfile・依存定義の内容ハッシュ（hashFiles）ではなく、
+      # github.sha（コミットごとに変わる値）にする。内容ハッシュを鍵にすると、
+      # 内容が変わらない限り同じ鍵になり、restore が完全一致した直後に
+      # 同じ鍵で save しようとして「Unable to reserve cache with key ...」で
+      # 失敗し続ける（actions/cache の鍵は一度書いたら不変で上書きできないため）。
+      # github.sha にしても、同一コミットに対する2回目の workflow_dispatch や
+      # re-run では鍵が一致するため、その場合はやはり save が失敗しうる
+      # （鍵をコミットより細かい粒度にしない限り避けられない制約）。
+      # 完全一致が無いとき（＝別コミットの初回ビルド）は restore-keys の
+      # 前方一致で直近のキャッシュから始めるので、再利用性は落ちない。
       #
       # 復元（restore）と保存（save）を actions/cache/restore と
       # actions/cache/save に分けている。ひとまとめの actions/cache はジョブの
@@ -69,9 +73,16 @@ jobs:
       # restored by the base branch or other pull requests targeting that
       # base branch.」）。つまり「PR で汚したキャッシュを push (main) が拾って
       # しまう」という経路は、この pull_request イベントに関しては最初から
-      # 存在しない。それでも保存を pull_request に限って止めているのは、
-      # 実害の無い書き込みを減らす整理（cache-quota の節約、意図の明示）が
-      # 目的であって、脆弱性を塞いだからではない。zizmor の cache-poisoning
+      # 存在しない。
+      # このワークフローで実際に残っていたのは、同一 ref 上の経路である:
+      # 同じ PR（同じ merge ref）や同じブランチの run が自分で汚したキャッシュを、
+      # 後続の「同じ ref 上」の信頼される run が復元してしまう可能性。
+      # このワークフローは workflow_dispatch でも push: が真になりレジストリへ
+      # 出すため、これが現実に残っていた経路であり、save を pull_request に
+      # 限って止めたことの実際の効果はここにある（フォーク越えの経路ではない）。
+      # それ以外の、実害の無い書き込みを減らす整理（cache-quota の節約、
+      # 意図の明示）という目的もあるが、脆弱性を塞いだのが主目的ではない。
+      # zizmor の cache-poisoning
       # finding が消えたのも、この if によってではなく actions/cache/restore・
       # actions/cache/save が KNOWN_CACHE_AWARE_ACTIONS の "actions/cache"
       # （サブパス無しの完全一致）に該当しなくなったため（zizmor のソースで確認済み）
@@ -117,8 +128,9 @@ jobs:
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
       # 保存は pull_request では行わない（理由は復元ステップのコメントを参照。
-      # 主目的は書き込みの整理であって、脆弱性を塞ぐことではない）。
-      # 鍵は復元ステップと同じ組み立てにする（run ごとに変わる github.sha）。
+      # このワークフローで実際に閉じたのは同一 ref 上の経路であって、
+      # フォーク越えの脆弱性を塞いだわけではない）。
+      # 鍵は復元ステップと同じ組み立てにする（github.sha、コミットごとに変わる）。
       - name: レイヤキャッシュを保存する
         if: github.event_name != 'pull_request'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
