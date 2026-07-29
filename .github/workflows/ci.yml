@@ -16,15 +16,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# permissions: このワークフローが GITHUB_TOKEN に許す操作。
-# GITHUB_TOKEN はジョブごとに自動発行され、既定の権限はリポジトリ設定に依存する。
-# ここで contents: read を明示することで、設定に関係なく「読むことしかできない
-# トークン」に固定している。書き込みが必要なジョブが出てきたら、ワークフロー
-# 全体ではなくそのジョブだけに permissions を足す（理由と実測は
-# docs/stages/stage-06-security.md を参照）。
-permissions:
-  contents: read
-
 jobs:
   meta:
     name: Metadata
