@@ -112,3 +112,27 @@ PowerShell 前提のコマンドを書きたいときだけ `shell: pwsh` にす
 **原因**: `${{ needs.foo.outputs.bar }}` のような参照は、対象が存在しなくてもエラーにならず
 空文字列に評価される。綴り間違いや消し忘れが無言で通る。
 **対処**: `actionlint` が存在しないコンテキスト参照を指摘する。`Static Checks` のログを確認する。
+
+### `GraphQL: Resource not accessible by integration (addComment)`
+
+**原因**: `permissions: contents: read` のとき、`GITHUB_TOKEN` で PR にコメントを
+書こうとするなど、書き込みを伴う API 呼び出しを行った。GraphQL の `addComment`
+に限らず、権限が足りない操作全般で同じ形式のメッセージが出る。
+**対処**: 必要な権限（この例では `pull-requests: write`）を、ワークフロー全体では
+なく、その操作を行う**ジョブだけ**に足す。トップレベルに足すと `zizmor` の
+`excessive-permissions` に拒否されることがある（次項参照）。詳しくは
+[Stage 6 の解説](stages/stage-06-security.md) を参照。
+
+### `Static Checks` が `zizmor` のステップで落ちる（`error[...]` / `warning[...]` が出る）
+
+**原因**: `zizmor` がワークフローの危険な書き方を検出した。代表的なものに
+`unpinned-uses`（`uses:` がタグ参照のままで SHA にピン留めされていない）、
+`excessive-permissions`（`permissions:` が広すぎる、あるいは書かれておらず既定に
+頼っている）、`artipacked`（`actions/checkout` が認証情報をワークスペースに
+残したままになっている）がある。`audit confidence → High` の指摘は `error` として
+終了コード `14` で、`Medium` 以下の指摘は `warning` として終了コード `13` で
+プロセスを終了させる（`0` 件なら成功）。
+**対処**: 抑制コメント（`# zizmor: ignore`）は使わず、コード側を直す。`uses:` は
+SHA + バージョンコメントに、`permissions:` は必要な範囲だけをジョブ単位で明示する、
+`actions/checkout` には `persist-credentials: false` を足す、など指摘の種類に応じて
+対応する。詳しくは [Stage 6 の解説](stages/stage-06-security.md) を参照。

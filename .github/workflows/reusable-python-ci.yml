@@ -14,7 +14,11 @@ on:
         type: string
 
 # permissions: このワークフローが GITHUB_TOKEN に許す操作。
-# 最小権限にしておく。なぜ必要かは Stage 6 で回収する。
+# GITHUB_TOKEN はジョブごとに自動発行され、既定の権限はリポジトリ設定に依存する。
+# ここで contents: read を明示することで、設定に関係なく「読むことしかできない
+# トークン」に固定している。書き込みが必要なジョブが出てきたら、ワークフロー
+# 全体ではなくそのジョブだけに permissions を足す（理由と実測は
+# docs/stages/stage-06-security.md を参照）。
 permissions:
   contents: read
 
@@ -28,12 +32,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: リポジトリを取得する
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # 既定の浅い clone だとタグを取得しない。「解説の行番号引用を検証する」が
           # check_doc_citations.py 経由で git show <tag>:<path> を呼ぶため、
           # 全履歴とタグを取得しておく必要がある。
           fetch-depth: 0
+          # このワークフローは checkout 後に git push をしないので、
+          # 認証情報をワークスペースに残す必要が無い（zizmor: artipacked）。
+          persist-credentials: false
 
       - name: Python 環境をセットアップする
         uses: ./.github/actions/setup-python-env
@@ -59,6 +66,11 @@ jobs:
             --workdir /repo \
             "rhysd/actionlint:${ACTIONLINT_VERSION}" -color
 
+      # actionlint は「ワークフローとして壊れていないか」を見る。
+      # zizmor は「危険な書き方をしていないか」を見る。目的が違うので両方入れる。
+      - name: ワークフローをセキュリティ観点で検査する
+        run: uv run zizmor .github/workflows/ .github/actions/
+
   test:
     name: Test (${{ matrix.os }} / Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
@@ -74,7 +86,11 @@ jobs:
             python-version: "3.12"
     steps:
       - name: リポジトリを取得する
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # このワークフローは checkout 後に git push をしないので、
+          # 認証情報をワークスペースに残す必要が無い（zizmor: artipacked）。
+          persist-credentials: false
 
       - name: Python 環境をセットアップする
         uses: ./.github/actions/setup-python-env
@@ -86,7 +102,7 @@ jobs:
 
       - name: カバレッジ HTML を artifact として保存する
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: coverage-html-${{ matrix.os }}-${{ matrix.python-version }}
           path: htmlcov/

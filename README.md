@@ -34,10 +34,16 @@ git switch main                # 最新の状態に戻る
 | 4 | 品質ゲート | [stage-04](docs/stages/stage-04-quality-gate.md) |
 | 5 | 再利用と構造化 | [stage-05](docs/stages/stage-05-reuse.md) |
 
-### フェーズ3以降
+### フェーズ3: セキュリティとデリバリー
 
-フェーズ3（セキュリティ・コンテナ・AWS デプロイ）、フェーズ4（モノレポ・Databricks・運用）は
-順次追加します。全体像は [設計書](docs/superpowers/specs/2026-07-26-github-actions-learning-curriculum-design.md) を参照してください。
+| Stage | テーマ | 解説 |
+|---|---|---|
+| 6 | セキュリティ基礎 | [stage-06](docs/stages/stage-06-security.md) |
+
+### フェーズ4
+
+フェーズ4（モノレポ・Databricks・運用）は順次追加します。
+全体像は [設計書](docs/superpowers/specs/2026-07-26-github-actions-learning-curriculum-design.md) を参照してください。
 
 ## Stage 8 に進む前に
 
