@@ -328,8 +328,8 @@ GraphQL: Resource not accessible by integration (addComment)
   `permissions: { contents: read, pull-requests: write }` を追加すると成功し、実際に
   PR にコメントが投稿されることを確認しました。**このとき `pull-requests: write` を
   ワークフローのトップレベルではなく `gate` ジョブだけに足したのには理由があります。**
-  トップレベルに足すと `zizmor` の `excessive-permissions` に高信頼度（`audit
-  confidence → High`）で拒否されます。
+  トップレベルに足すと `zizmor` の `excessive-permissions` が **`high` の severity**
+  （`error`、終了コード `14`）として報告され、CI が落ちます。
 
   ```
   error[excessive-permissions]: overly broad permissions
@@ -337,10 +337,14 @@ GraphQL: Resource not accessible by integration (addComment)
      |
   23 |   pull-requests: write
      |   ^^^^^^^^^^^^^^^^^^^^ pull-requests: write is overly broad at the workflow level
+     |
+     = note: audit confidence → High
   ```
 
   「ワークフロー全体に効く権限」と「特定のジョブだけが必要とする権限」を区別し、
   後者はジョブ側の `permissions:` に書く、という設計そのものが「最小権限」の実践です。
+  （`zizmor` の `error`/`warning` と終了コードの判定基準は、次の「`zizmor`」の項で
+  まとめて扱います。）
 
 - **`env:` 経由の回収** — `run:` の中に書いた `${{ }}` は、シェルが起動する**前**に
   文字列として展開されます。つまり展開後の文字列がそのままシェルのソースコードに
@@ -390,11 +394,16 @@ GraphQL: Resource not accessible by integration (addComment)
   組み込み済みです）。確認後、実験ジョブは `git revert` で完全に取り除きました
   （commit `cf0c7e1`、PR タイトルも元に戻し済み）。
 
-- **`pull_request_target` の罠** — `pull_request` トリガーは、フォークからの PR で
-  あっても**ベースブランチ側のワークフロー定義**を使い、`GITHUB_TOKEN` は既定で
-  読み取り専用に近い権限で発行されます。しかし `pull_request_target` は違います。
-  `pull_request_target` で起動したワークフローは、**ベースブランチ側のワークフロー定義が、
-  書き込み権限のあるトークン付きで動きます。** ここでうっかりフォーク側のコード
+- **`pull_request_target` の罠** — `pull_request` トリガーは、PR のマージコミット
+  （`refs/pull/<番号>/merge`、base に head をマージした状態）の**コンテキストで動きます。**
+  つまり、フォーク側が PR の中でワークフロー定義そのものを書き換えていれば、
+  `pull_request` はその**書き換えられた定義**を実際に実行します。それでも事故が
+  起きにくいのは、「base 側の定義が使われるから」ではなく、**発行される
+  `GITHUB_TOKEN` が読み取り専用に近い権限しか持たず、`secrets` もフォークからの実行には
+  渡らないから**です。`pull_request_target` はここが逆転します。
+  `pull_request_target` で起動したワークフローは、**PR のマージコミットではなく
+  base ブランチ側の定義**が、書き込み権限のあるトークンと `secrets` 付きで動きます。
+  ここでうっかりフォーク側のコード
   （PR のコミット）をチェックアウトして実行すると、他人が書いたコードに書き込み権限つきの
   トークンを渡してしまうことになり、フォークからの悪意あるコードが `secrets` を盗んだり
   リポジトリに書き込んだりする典型的な事故パターンになります。**本教材では
@@ -430,13 +439,17 @@ GraphQL: Resource not accessible by integration (addComment)
   という検証チェックが自動生成されたことで確認しています。
 
 - **`zizmor`** — `actionlint` は「ワークフローとして構文的に壊れていないか」を見ます
-  （`reusable-python-ci.yml` 62〜67行目）。存在しないコンテキスト参照や、無効な
-  構文は指摘しますが、「動くけれど危険」という書き方までは見ません。`zizmor`
-  （`reusable-python-ci.yml` 69〜72行目）はその隙間を埋め、危険な書き方をパターンとして
-  検出します。導入時にローカルで `uv run zizmor .github/workflows/ .github/actions/`
-  を実行したところ、`actions/checkout` を使う3箇所（当時の `ci.yml` の `meta`
-  ジョブ、`reusable-python-ci.yml` の `static` ジョブ・`test` ジョブ）すべてで
-  次の指摘（`artipacked`）が出ました。
+  （`reusable-python-ci.yml` 62〜67行目）。存在しないコンテキスト参照や無効な構文は
+  指摘しますし、`github.event.pull_request.title` のような信頼できないコンテキストを
+  `run:` に直接埋め込むパターンも `[expression]` ルールで検出します（前項「`env:`
+  経由の回収」で実測したとおりです）。しかし、`permissions` が広すぎる・過去に
+  ピン留めを忘れている・`actions/checkout` が認証情報を残したままになっている、
+  といった**ワークフロー設計上のセキュリティ上の危険は対象外**です。`zizmor`
+  （`reusable-python-ci.yml` 69〜72行目）はそこを埋め、こうした設計上の危険を
+  パターンとして検出します。導入時にローカルで `uv run zizmor
+  .github/workflows/ .github/actions/` を実行したところ、`actions/checkout` を使う
+  3箇所（当時の `ci.yml` の `meta` ジョブ、`reusable-python-ci.yml` の `static`
+  ジョブ・`test` ジョブ）すべてで次の指摘（`artipacked`）が出ました。
 
   ```
   4 findings (1 suppressed, 3 unsafe fixes): 0 informational, 0 low, 3 medium, 0 high
@@ -449,6 +462,19 @@ GraphQL: Resource not accessible by integration (addComment)
   `reusable-python-ci.yml` 36〜43行目・90〜93行目のように、各 `actions/checkout` に
   `persist-credentials: false` を追加してコード側で直しました。修正後の再実行結果は
   `No findings to report. Good job! (1 suppressed)` で、終了コードは `0` でした。
+
+  **`zizmor` の `error`/`warning` と終了コードは `severity`（`informational` /
+  `low` / `medium` / `high`）で決まり、`confidence`（`low` / `medium` / `high`、
+  「どれだけ確からしいか」）とは独立した軸です。** severity が `high` の指摘は
+  `error` として終了コード `14`、`medium` の指摘は `warning` として終了コード
+  `13`（`low` は `12`、`informational` は `11`、指摘が無ければ `0`）になります。
+  実際に手元で確認したところ、`pull_request_target` トリガーを検出する
+  `dangerous-triggers` は `audit confidence → Medium` であるにもかかわらず
+  severity は `high`（`error`、終了コード `14`）でした。逆に、この `artipacked`
+  （`persist-credentials` 未設定）は `audit confidence → Low` でも severity は
+  `medium`（`warning`、終了コード `13`）です。`--min-severity` と `--min-confidence`
+  はそれぞれ独立にフィルタするオプションで、どちらか一方だけで「これ以上の
+  確からしさ・深刻さのものだけを見る」という絞り込みができます。
 
 - **`persist-credentials: false`**（前項で導入） — `ci.yml` 38〜41行目、
   `reusable-python-ci.yml` 36〜43行目・90〜93行目にあるとおり、`actions/checkout` の

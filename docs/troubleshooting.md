@@ -129,9 +129,15 @@ PowerShell 前提のコマンドを書きたいときだけ `shell: pwsh` にす
 `unpinned-uses`（`uses:` がタグ参照のままで SHA にピン留めされていない）、
 `excessive-permissions`（`permissions:` が広すぎる、あるいは書かれておらず既定に
 頼っている）、`artipacked`（`actions/checkout` が認証情報をワークスペースに
-残したままになっている）がある。`audit confidence → High` の指摘は `error` として
-終了コード `14` で、`Medium` 以下の指摘は `warning` として終了コード `13` で
-プロセスを終了させる（`0` 件なら成功）。
+残したままになっている）がある。`error`/`warning` の表示と終了コードは
+**`severity`**（`informational` / `low` / `medium` / `high`）で決まり、`high` は
+`error`・終了コード `14`、`medium` は `warning`・終了コード `13`（`low` は `12`、
+`informational` は `11`、指摘が無ければ `0`）になる。`audit confidence`
+（`low` / `medium` / `high`、「どれだけ確からしいか」）は severity とは独立した
+別の軸で、`error`/`warning` の判定には関係しない。実際に `pull_request_target`
+トリガーを検出する `dangerous-triggers` は `audit confidence → Medium` でも
+severity は `high`（`error`、終了コード `14`）になる。`--min-severity` /
+`--min-confidence` でそれぞれ独立に絞り込める。
 **対処**: 抑制コメント（`# zizmor: ignore`）は使わず、コード側を直す。`uses:` は
 SHA + バージョンコメントに、`permissions:` は必要な範囲だけをジョブ単位で明示する、
 `actions/checkout` には `persist-credentials: false` を足す、など指摘の種類に応じて
