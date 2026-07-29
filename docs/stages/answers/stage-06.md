@@ -111,12 +111,16 @@ error[unpinned-uses]: unpinned action reference
 2 findings (1 suppressed): 0 informational, 0 low, 0 medium, 1 high
 ```
 
-終了コードは `14`（`zizmor` は少なくとも1件の error 相当の指摘があると `14`
-で終了する。問3で確認した warning のみのケースは `13` で終了しており、この違いも
-実測できました）。`Lint & Test` も、依存ジョブの結果判定ステップにより失敗しました。
+終了コードは `14`（`zizmor` は最も高い severity が `high` の指摘を含むと `14`
+で終了する。この `unpinned-uses` は severity が `high` なので `error` として
+報告されている。問3で確認した severity `medium`（`warning`）のみのケースは `13`
+で終了しており、この違いも実測できました。終了コードを決めるのは severity で
+あって、`audit confidence`（この指摘では `High`）とは別の軸です）。`Lint & Test`
+も、依存ジョブの結果判定ステップにより失敗しました。
 
 **予想どおりの結果です。** SHA ピン留めをタグ参照に戻すと、`unpinned-uses`
-（`audit confidence → High`）が即座に再現し、CI が赤くなりました。
+（severity `high`、`error`、`audit confidence → High`）が即座に再現し、
+CI が赤くなりました。
 
 確認後、`git revert --no-edit HEAD`（commit `10ad4df`）で `action.yml` を SHA 参照に
 戻し、`git diff` で revert 前のコミットと差分が無いことを確認しました。実行 ID
@@ -172,9 +176,9 @@ warning[excessive-permissions]: overly broad permissions
 （`ci.yml:4:1` はワークフロー全体、`ci.yml:20:3` は `meta` ジョブ、`ci.yml:43:3` は
 `checks` ジョブ、`ci.yml:50:3` は `gate` ジョブへの指摘です。）
 
-終了コードは `13`（warning のみで error が無いケース。問2の `unpinned-uses`
-は `high` の error 相当で終了コード `14` でした）。`Lint & Test` も依存ジョブの
-判定により失敗しました。
+終了コードは `13`（すべて severity `medium` の `warning` で、`high` の `error` は
+無いケース。問2の `unpinned-uses` は severity `high` の `error` で終了コード
+`14` でした）。`Lint & Test` も依存ジョブの判定により失敗しました。
 
 さらに、`Metadata` ジョブのログの `GITHUB_TOKEN Permissions` セクションを確認すると、
 
