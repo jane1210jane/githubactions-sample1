@@ -48,8 +48,10 @@ CMD ["sales_report.lambda_handler.handler"]
 で2回目のビルドを実行しました（run `30501432966`）。
 
 ```
-レイヤキャッシュを復元する: Cache restored from key: buildx-Linux-e59863c1ad6548ec4161529a4e9a6e12f8617566
-  (1回目が保存したキャッシュに完全一致、Cache Size: ~217 MB)
+レイヤキャッシュを復元する: Cache hit for restore-key: buildx-Linux-e59863c1ad6548ec4161529a4e9a6e12f8617566
+  Cache restored from key: buildx-Linux-e59863c1ad6548ec4161529a4e9a6e12f8617566
+  (今回の完全一致キー buildx-Linux-4d95344... は無かったため、restore-keys の
+   前方一致で1回目が保存したキャッシュにヒット、Cache Size: ~217 MB)
 #7 [2/4] COPY src/ /var/task/
 #8 [3/4] COPY pyproject.toml uv.lock ./
 #9 [4/4] RUN pip install ...
@@ -146,34 +148,48 @@ run `30500085311`）では、コードは変えず依存定義だけ変わらな
 イベントに対する `GITHUB_TOKEN` の扱いが、PR の出どころによって異なるため、
 結果も変わるはずです。
 
+この問いは `push:` だけを `true` に変えた場合を前提にしています。`container.yml`
+の「GHCR にログインする」ステップには `if: github.event_name != 'pull_request'`
+が付いたままなので、`pull_request` イベントでは `push:` の値に関わらずログイン
+ステップ自体が skip される点を先に押さえておく必要があります。
+
 - **フォークからの PR**: GitHub 公式ドキュメント
   （`securely-using-pull_request_target`）に「`pull_request` イベントは
   restricts these events to a read-only `GITHUB_TOKEN`, withholds access to
   other secrets」と明記されています。フォークからの PR に対して発行される
-  `GITHUB_TOKEN` は読み取り専用に制限されるため、`build` ジョブの `permissions:`
-  ブロックで `packages: write` を宣言していても、実際にフォークの PR で走った
-  ジョブに渡るトークンはその宣言どおりの権限を持たず、GHCR への push
-  （書き込み）は認証エラーで失敗するはずです。
-- **同一リポジトリのブランチからの PR**: フォークを経由しない PR（このリポジトリの
-  ブランチ同士の PR、たとえば PR #24 のような `stage/07-container` → `main`）は、
-  上記の「読み取り専用に制限される」対象ではありません。`GITHUB_TOKEN` は
-  ワークフロー・ジョブに宣言された `permissions:`（`packages: write` を含む）
-  どおりの権限を持つため、`docker/login-action` のログインも
-  `docker/build-push-action` の push も成功してしまうはずです。
+  `GITHUB_TOKEN` は読み取り専用に制限されるため、たとえ `login` の `if:` も
+  外して無条件にログインを試みたとしても、`build` ジョブの `permissions:`
+  ブロックで `packages: write` を宣言している宣言どおりの権限はフォークの PR
+  には渡らず、GHCR への push（書き込み）は認証エラーで失敗するはずです。
+- **同一リポジトリのブランチからの PR**: `push:` だけを `true` にして `login`
+  ステップの `if:` をそのままにした場合、`pull_request` イベントではログイン
+  自体が実行されないため、`docker/build-push-action` が push を試みても
+  未認証のまま失敗するはずです。フォークを経由しない PR（このリポジトリの
+  ブランチ同士の PR、たとえば PR #24 のような `stage/07-container` → `main`）で
+  実際に push を成功させるには、`push:` だけでなく `login` ステップの `if:` も
+  同時に外す必要があります。その場合、フォークを経由しない PR は上記の
+  「読み取り専用に制限される」対象ではないため、`GITHUB_TOKEN` はワークフロー・
+  ジョブに宣言された `permissions:`（`packages: write` を含む）どおりの権限を
+  持ち、`docker/login-action` のログインも `docker/build-push-action` の push
+  も成功してしまうはずです。
 
-**この差が生まれる理由**: GitHub は「信頼できないコードが混ざりうるフォークからの
-PR」と「リポジトリの正規のコラボレーターが作った、フォークを経由しない PR」を
-区別して `GITHUB_TOKEN` の権限を決めています。フォークからの PR は、PR の中身
-そのもの（コードやワークフロー定義の変更）を信頼できないため、`pull_request`
-イベントであっても書き込み権限や `secrets`（`GITHUB_TOKEN` 以外）へのアクセスを
-絞ります。一方、フォークを経由しない PR は同じリポジトリの権限を持つ人が作った
-ブランチであるため、この制限の対象外です。**つまり「PR だから安全」ではなく
-「フォークだから安全」という区別であり、`push: true` を PR で使うと、フォークからは
-失敗しますが、フォークを経由しない社内・自分のブランチからの PR では、レビューを
-経る前に GHCR へ実際に push されてしまいます。** `container.yml` が `push:` を
-`github.event_name != 'pull_request'` で止めているのは、この「フォークかどうか」に
-依存しない、より単純で確実な境界（`pull_request` イベントそのものでは push を
-一切試みない）を選んだ結果です。
+**この差が生まれる理由**: `login` と `push` という**2つの独立したゲート**が
+組み合わさっているため、`push:` だけを変えても片方のゲート（`login` の `if:`）が
+残っていれば全体としては失敗します。両方を外した場合に初めて、GitHub が
+「信頼できないコードが混ざりうるフォークからの PR」と「リポジトリの正規の
+コラボレーターが作った、フォークを経由しない PR」を区別して `GITHUB_TOKEN` の
+権限を決めているという、もう1段階の差が表に出ます。フォークからの PR は、
+PR の中身そのもの（コードやワークフロー定義の変更）を信頼できないため、
+`pull_request` イベントであっても書き込み権限や `secrets`（`GITHUB_TOKEN` 以外）
+へのアクセスを絞ります。一方、フォークを経由しない PR は同じリポジトリの権限を
+持つ人が作ったブランチであるため、この制限の対象外です。**つまり「PR だから
+安全」ではなく「フォークだから安全」という区別であり、`login` の `if:` まで
+外してしまうと、フォークからは失敗しますが、フォークを経由しない社内・自分の
+ブランチからの PR では、レビューを経る前に GHCR へ実際に push されてしまいます。**
+`container.yml` が `push:` を `github.event_name != 'pull_request'` で止め、
+`login` にも同じ `if:` を付けているのは、この「フォークかどうか」に依存しない、
+より単純で確実な境界（`pull_request` イベントそのものではログインも push も
+一切試みない）を、2つのステップ両方で選んだ結果です。
 
 **実際に試すかどうかは任意です。今回は試していません。** 理由は、このリポジトリで
 実際に `push: true` を試すには、`pull_request` イベントで GHCR へ push が成立する
@@ -182,3 +198,30 @@ PR」と「リポジトリの正規のコラボレーターが作った、フォ
 実環境で発生させることになるため見送りました。上記の予測は、Stage 6 で確認した
 「フォークからの PR には書き込み権限つきトークンも `secrets` も渡らない」という
 既知の挙動と、GitHub 公式ドキュメントの記述から導いたものです。
+
+## 付録: GHCR パッケージの可視性を匿名で確認するコマンド
+
+[stage-07-container.md](../stage-07-container.md) の「つまずきポイント」で
+触れている、GHCR パッケージが実際に public か private かを確認したコマンドです。
+`read:packages` スコープの無い `gh` トークンでも、パッケージが public であれば
+次のように匿名（Docker の `token` エンドポイント経由）で確認できます。
+
+```bash
+TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:<owner>/<repo>/<image>:pull" \
+  | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://ghcr.io/v2/<owner>/<repo>/<image>/tags/list"
+
+curl -s -H "Authorization: Bearer $TOKEN" \
+  -H "Accept: application/vnd.oci.image.index.v1+json" \
+  "https://ghcr.io/v2/<owner>/<repo>/<image>/manifests/latest" -D - -o /dev/null
+```
+
+このリポジトリ（`jane1210jane/githubactions-sample1` の `sales-report` パッケージ）
+に対して実際に実行したところ、`tags/list` が実在するタグの一覧を返し、
+`manifests/latest` も `HTTP/1.1 200 OK` と `docker-content-digest` を返しました。
+どちらも認証情報無しで取得できたため、このパッケージは public であると判断しました。
+パッケージが private であれば、この匿名トークンでの `tags/list` / `manifests/*`
+は `401 Unauthorized` になります（`read:packages` スコープ付きの認証済みトークンが
+必要になる）。
