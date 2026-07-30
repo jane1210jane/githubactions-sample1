@@ -17,13 +17,12 @@ FROM public.ecr.aws/lambda/python:3.12
 # と明記している。
 # 参照: https://docs.aws.amazon.com/lambda/latest/dg/python-package.html
 #   ("Runtime dependencies in Python" - Important 注記)
-# EXPERIMENT(stage-07 Q1): COPY src/ を依存インストールより前に一時的に動かす。
-# 演習1の検証用。検証後は元の順序（依存を先、コードを後）に戻す。
-COPY src/ "${LAMBDA_TASK_ROOT}/"
-
 COPY pyproject.toml uv.lock ./
 RUN pip install --no-cache-dir uv \
     && uv export --frozen --no-dev --extra aws --no-emit-project --format requirements-txt > requirements.txt \
     && pip install --no-cache-dir -r requirements.txt
+
+# アプリ本体は最後に置く。コードだけ変えたときに再利用できるレイヤを増やすため。
+COPY src/ "${LAMBDA_TASK_ROOT}/"
 
 CMD ["sales_report.lambda_handler.handler"]
