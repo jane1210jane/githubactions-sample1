@@ -1,0 +1,139 @@
+# Stage 7: アプリをコンテナにして GHCR へ置く。
+# CI（検査とテスト）とは別のワークフローにしてある。目的が違い、
+# 走らせたいタイミングも違うため。
+name: Container
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# ワークフロー全体では読み取りだけを許す。GHCR への書き込み権限は
+# 必要なジョブにだけ足す（Stage 6 で学んだ原則）。
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/sales-report
+
+jobs:
+  build:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # GHCR へ push するにはパッケージへの書き込み権限が要る。
+    # ワークフロー全体ではなくこのジョブだけに足す。
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: リポジトリを取得する
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # buildx を使うと、レイヤキャッシュを外部に出し入れできるようになる。
+      - name: Docker Buildx を用意する
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
+
+      # レイヤキャッシュを actions/cache で自分で管理する。
+      # Stage 3 では setup-uv がキャッシュを自動で面倒みてくれていたが、
+      # ここでは保存先と鍵を自分で決める。
+      #
+      # 鍵は Dockerfile・依存定義の内容ハッシュ（hashFiles）ではなく、
+      # github.sha（コミットごとに変わる値）にする。内容ハッシュを鍵にすると、
+      # 内容が変わらない限り同じ鍵になり、restore が完全一致した直後に
+      # 同じ鍵で save しようとして「Unable to reserve cache with key ...」で
+      # 失敗し続ける（actions/cache の鍵は一度書いたら不変で上書きできないため）。
+      # github.sha にしても、同一コミットに対する2回目の workflow_dispatch や
+      # re-run では鍵が一致するため、その場合はやはり save が失敗しうる
+      # （鍵をコミットより細かい粒度にしない限り避けられない制約）。
+      # 完全一致が無いとき（＝別コミットの初回ビルド）は restore-keys の
+      # 前方一致で直近のキャッシュから始めるので、再利用性は落ちない。
+      #
+      # 復元（restore）と保存（save）を actions/cache/restore と
+      # actions/cache/save に分けている。ひとまとめの actions/cache はジョブの
+      # 最後に自動で保存するため、pull_request で走らせても保存が行われる。
+      # ここでは pull_request では保存しない（下の save ステップの if を参照）。
+      # ただし GitHub のキャッシュのスコープ規則により、pull_request イベントで
+      # 作られるキャッシュはマージ先の ref ではなく PR のマージ ref
+      # （refs/pull/<N>/merge）に閉じており、そもそも push（main）側からは
+      # 復元できない（公式ドキュメント "Restrictions for accessing a cache":
+      # 「When a cache is created by a workflow run triggered on a pull
+      # request, the cache is created for the merge ref ... It cannot be
+      # restored by the base branch or other pull requests targeting that
+      # base branch.」）。つまり「PR で汚したキャッシュを push (main) が拾って
+      # しまう」という経路は、この pull_request イベントに関しては最初から
+      # 存在しない。
+      # このワークフローで実際に残っていたのは、同一 ref 上の経路である:
+      # 同じ PR（同じ merge ref）や同じブランチの run が自分で汚したキャッシュを、
+      # 後続の「同じ ref 上」の信頼される run が復元してしまう可能性。
+      # このワークフローは workflow_dispatch でも push: が真になりレジストリへ
+      # 出すため、これが現実に残っていた経路であり、save を pull_request に
+      # 限って止めたことの実際の効果はここにある（フォーク越えの経路ではない）。
+      # それ以外の、実害の無い書き込みを減らす整理（cache-quota の節約、
+      # 意図の明示）という目的もあるが、脆弱性を塞いだのが主目的ではない。
+      # zizmor の cache-poisoning
+      # finding が消えたのも、この if によってではなく actions/cache/restore・
+      # actions/cache/save が KNOWN_CACHE_AWARE_ACTIONS の "actions/cache"
+      # （サブパス無しの完全一致）に該当しなくなったため（zizmor のソースで確認済み）
+      # であり、finding が無いことをリスククラスの解消の証拠にはしない。
+      - name: レイヤキャッシュを復元する
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-${{ runner.os }}-${{ github.sha }}
+          # 完全一致が無ければ、同じ OS の直近のキャッシュから始める。
+          restore-keys: |
+            buildx-${{ runner.os }}-
+
+      - name: GHCR にログインする
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: イメージをビルドする（必要なら push する）
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
+        with:
+          context: .
+          # PR では push しない。フォークからの PR に書き込み権限は渡らないため、
+          # push しようとすると必ず失敗する。
+          push: ${{ github.event_name != 'pull_request' }}
+          # :latest は main への push のときだけ付ける。workflow_dispatch は
+          # 検証用に任意のブランチから実行できるため、:latest を無条件で
+          # 付けると未マージのブランチの内容が「最新版」として公開されてしまう。
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ (github.ref == 'refs/heads/main') && format('{0}:latest', env.IMAGE_NAME) || '' }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      # cache-to をそのまま同じディレクトリに書くとキャッシュが際限なく育つ。
+      # 新しいものと入れ替える。
+      - name: レイヤキャッシュを入れ替える
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      # 保存は pull_request では行わない（理由は復元ステップのコメントを参照。
+      # このワークフローで実際に閉じたのは同一 ref 上の経路であって、
+      # フォーク越えの脆弱性を塞いだわけではない）。
+      # 鍵は復元ステップと同じ組み立てにする（github.sha、コミットごとに変わる）。
+      - name: レイヤキャッシュを保存する
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-${{ runner.os }}-${{ github.sha }}

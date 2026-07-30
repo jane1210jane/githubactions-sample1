@@ -142,3 +142,31 @@ severity は `high`（`error`、終了コード `14`）になる。`--min-severi
 SHA + バージョンコメントに、`permissions:` は必要な範囲だけをジョブ単位で明示する、
 `actions/checkout` には `persist-credentials: false` を足す、など指摘の種類に応じて
 対応する。詳しくは [Stage 6 の解説](stages/stage-06-security.md) を参照。
+
+### `Failed to save: Unable to reserve cache with key ..., another job may be creating this cache.`
+
+**原因**: `actions/cache`（または `actions/cache/save`）の `key:` に、内容ハッシュ
+（`hashFiles(...)`）のように**内容が変わらない限り毎回同じ値になる鍵**を使っている。
+`restore` がその鍵に完全一致して復元した直後、同じ鍵で `save` しようとするが、
+`actions/cache` の鍵は一度書き込むと不変で上書きできないため、必ず失敗する。
+これは一時的な不具合ではなく、対象ファイルの内容が変わらない限り毎回起こる。
+**対処**: 鍵にコミットごとに変わる値（`github.sha` など）を使う。ただし同一コミットに
+対する2回目の実行や re-run では、それでも鍵が一致し同じ理由で失敗しうる。
+詳しくは [Stage 7 の解説](stages/stage-07-container.md) と
+[演習2の解答](stages/answers/stage-07.md) を参照。
+
+### `error[cache-poisoning]: runtime artifacts potentially vulnerable to a cache poisoning attack`
+
+**原因**: `zizmor` が、同一ジョブ内に「キャッシュを書き込むアクション」
+（`actions/cache` など）と「ビルド成果物を外部へ送り出す（publish する）アクション」
+（`docker/build-push-action` など）が同居していることを検出した。`push:` を
+条件式でガードしていても、`zizmor` はステップの `if:` 条件を評価しないため、
+ガードの有無に関わらず対象アクションの組み合わせだけで検出する。
+**対処**: `actions/cache` を `actions/cache/restore`（読み取り、常時実行）と
+`actions/cache/save`（書き込み、信頼できるコンテキストに限定）に分割する。
+`zizmor` がキャッシュ対応アクションとして認識する一覧はサブパス無しの完全一致
+（`actions/cache`）だけを含むため、サブパス付きの参照（`actions/cache/restore` /
+`actions/cache/save`）はこのパターンに当てはまらなくなり、finding が消える。
+**ただしこれはリスククラスそのものの解消ではなく、静的解析のパターンマッチが
+対象から外れただけである点に注意する。** 詳しくは
+[Stage 7 の解説](stages/stage-07-container.md) を参照。

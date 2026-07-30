@@ -39,6 +39,7 @@ git switch main                # 最新の状態に戻る
 | Stage | テーマ | 解説 |
 |---|---|---|
 | 6 | セキュリティ基礎 | [stage-06](docs/stages/stage-06-security.md) |
+| 7 | ETL 化とコンテナ | [stage-07](docs/stages/stage-07-container.md) |
 
 ### フェーズ4
 
