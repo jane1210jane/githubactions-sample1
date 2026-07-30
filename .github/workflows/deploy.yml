@@ -1,0 +1,243 @@
+# Stage 8: 実際に AWS へデプロイする。
+# 長期のアクセスキーは置かない。OIDC でその実行専用の一時認証を取る。
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+    inputs:
+      rollback_to_version:
+        description: ロールバック先の Lambda バージョン番号（空ならロールバックしない）
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  # デプロイ先（Lambda 関数1つ、staging/production エイリアス）は ref に
+  # 依存しない。ref 別にグループを分けると、main への push によるデプロイと
+  # 別ブランチからの workflow_dispatch（ロールバック）が同時に走り、同じ
+  # 関数に publish-version / update-alias を競合させてしまう。だから
+  # グループは固定の定数にし、走行中のものを消さずに待たせる。
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # OIDC のトークンを発行してもらうために必要。これが無いと
+      # aws-actions/configure-aws-credentials は認証できない
+      # （同 action の README で明記されている必須 permission）。
+      id-token: write
+    steps:
+      - name: リポジトリを取得する
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # 長期のアクセスキーは使わない。この実行のためだけの一時認証を取る。
+      - name: AWS の一時認証を取得する
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6.2.3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          # このリポジトリは public。アカウント ID がログに出るのを防ぐ
+          # （AWS_ROLE_ARN をシークレットにしているのと同じ理由）。
+          mask-aws-account-id: "true"
+
+      - name: ECR にログインする
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64  # v2.1.6
+
+      - name: イメージをビルドして push する
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          uri="${REGISTRY}/${REPOSITORY}:${IMAGE_TAG}"
+          docker build --tag "${uri}" .
+          docker push "${uri}"
+
+      # Stage 0 で予告した「ジョブ間でファイルを渡す仕組み」がここで要る。
+      #
+      # 【マスクの限界】REGISTRY（"<ACCOUNT_ID>.dkr.ecr.<region>.amazonaws.com"）は
+      # 上の configure-aws-credentials の mask-aws-account-id でこのジョブの
+      # ログ上はマスクされるが、マスクが効くのはランナーのログストリームだけ。
+      # artifact としてアップロードするファイルの中身にも、GITHUB_STEP_SUMMARY にも
+      # マスクは一切効かない。このリポジトリは public なので、artifact に書いた
+      # 内容は誰でもダウンロードできる。だからこのマニフェストには、アカウント ID を
+      # 含む完全な image URI ではなく、そこに含まれない部品（リポジトリ名・
+      # コミット SHA）だけを書く。フルの URI は deploy-staging 側で、そのジョブ
+      # 自身が取得したアカウント ID から組み立て直す。
+      - name: デプロイ用のマニフェストを書き出す
+        env:
+          ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          cat > deployment-manifest.json <<JSON
+          {
+            "ecr_repository": "${ECR_REPOSITORY_NAME}",
+            "commit_sha": "${COMMIT_SHA}",
+            "built_at": "$(date --iso-8601=seconds)"
+          }
+          JSON
+          cat deployment-manifest.json
+
+      - name: マニフェストを artifact として保存する
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: deployment-manifest
+          path: deployment-manifest.json
+          retention-days: 7
+
+  deploy-staging:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 15
+    environment: staging
+    permissions:
+      contents: read
+      # OIDC で AWS の一時認証を取るために必要。
+      id-token: write
+    steps:
+      - name: マニフェストを取得する
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: deployment-manifest
+
+      - name: AWS の一時認証を取得する
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6.2.3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: "true"
+
+      # docs/aws-bootstrap.md 3.7 節の設計どおり、Lambda 関数はここで
+      # 初回作成する（ECR にイメージが無いと関数を作れないため、CloudShell
+      # 側の一度きりの手作業では作れない。関数を作れるのは、イメージが
+      # 実際に存在するこの時点だけ）。存在すれば更新、無ければ作成する。
+      #
+      # 実行ロールの名前 sales-report-etl-lambda-role は同手順書 3.3 節で
+      # 固定した名前規約（学習者から受け取る4値には含まれない）。この名前と
+      # 実行時に取得したアカウント ID から ARN を組み立てる。
+      #
+      # 【マスクの限界】account_id は上の configure-aws-credentials の
+      # mask-aws-account-id により「このジョブのログ」ではマスクされる。
+      # しかし GITHUB_STEP_SUMMARY と artifact にはマスクが効かないため、
+      # account_id・exec_role_arn・image_uri（いずれもアカウント ID を含む）は
+      # このステップの中だけで使い、ステップサマリにも次の artifact にも
+      # 一切書き出さない（zizmor の finding が消えてもリスククラスは消えない、
+      # という Stage 6 の教訓と同じ型）。
+      #
+      # 初回作成時の --timeout / --memory-size はデフォルト（3秒/128MB）のままだと
+      # 2回目以降 update-function-code しか呼ばないため恒久設定になってしまう。
+      # CSV→JSON の ETL には既定値では不足する見込みのため、60秒/512MB を明示する。
+      # この値は見積もりであり、AWS 無しでは妥当性を確認できない
+      # （Task 10b の実デプロイで実測し、必要なら調整する）。
+      - name: Lambda を作成または更新して staging エイリアスを張り替える
+        env:
+          FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
+          EXEC_ROLE_NAME: sales-report-etl-lambda-role
+          CREATE_TIMEOUT_SECONDS: "60"
+          CREATE_MEMORY_SIZE_MB: "512"
+          # 上の configure-aws-credentials も output-env-credentials（既定 true）で
+          # 同じ値を環境変数として渡してくるが、ここで vars.AWS_REGION から
+          # 明示的に渡し直す（この run: の中で参照する変数は env: 経由にする
+          # という規約に合わせるため）。
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          ecr_repository=$(python -c "import json;print(json.load(open('deployment-manifest.json'))['ecr_repository'])")
+          image_tag=$(python -c "import json;print(json.load(open('deployment-manifest.json'))['commit_sha'])")
+
+          # account_id はマニフェストに書かず、ここで取得したものだけを使う。
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          image_uri="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ecr_repository}:${image_tag}"
+          echo "デプロイするイメージのタグ: ${image_tag}"
+
+          if aws lambda get-function --function-name "${FUNCTION_NAME}" >/dev/null 2>&1; then
+            echo "既存の Lambda 関数を更新します"
+            aws lambda update-function-code \
+              --function-name "${FUNCTION_NAME}" \
+              --image-uri "${image_uri}" >/dev/null
+            aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
+          else
+            echo "Lambda 関数がまだ無いため初回作成します（docs/aws-bootstrap.md 3.7 節）"
+            exec_role_arn="arn:aws:iam::${account_id}:role/${EXEC_ROLE_NAME}"
+            aws lambda create-function \
+              --function-name "${FUNCTION_NAME}" \
+              --package-type Image \
+              --code ImageUri="${image_uri}" \
+              --role "${exec_role_arn}" \
+              --timeout "${CREATE_TIMEOUT_SECONDS}" \
+              --memory-size "${CREATE_MEMORY_SIZE_MB}" >/dev/null
+            aws lambda wait function-active --function-name "${FUNCTION_NAME}"
+          fi
+
+          version=$(aws lambda publish-version --function-name "${FUNCTION_NAME}" --query Version --output text)
+          echo "公開したバージョン: ${version}"
+          aws lambda update-alias --function-name "${FUNCTION_NAME}" \
+            --name staging --function-version "${version}" \
+            || aws lambda create-alias --function-name "${FUNCTION_NAME}" \
+                 --name staging --function-version "${version}"
+          {
+            echo "## staging へデプロイしました"
+            echo ""
+            echo "- ECR リポジトリ: \`${ecr_repository}\`"
+            echo "- イメージタグ（commit sha）: \`${image_tag}\`"
+            echo "- Lambda バージョン: ${version}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  deploy-production:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    timeout-minutes: 15
+    # この environment には承認者が設定してある。ここでワークフローが止まり、
+    # 人が承認するまで先へ進まない。
+    environment: production
+    permissions:
+      contents: read
+      # OIDC で AWS の一時認証を取るために必要。
+      id-token: write
+    steps:
+      - name: AWS の一時認証を取得する
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6.2.3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: "true"
+
+      - name: production エイリアスを張り替える
+        env:
+          FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
+          ROLLBACK_TO: ${{ inputs.rollback_to_version }}
+        run: |
+          if [ -n "${ROLLBACK_TO}" ]; then
+            target="${ROLLBACK_TO}"
+            echo "ロールバック先として指定されたバージョン: ${target}"
+          else
+            target=$(aws lambda get-alias --function-name "${FUNCTION_NAME}" \
+              --name staging --query FunctionVersion --output text)
+            echo "staging と同じバージョンを production へ: ${target}"
+          fi
+          aws lambda update-alias --function-name "${FUNCTION_NAME}" \
+            --name production --function-version "${target}" \
+            || aws lambda create-alias --function-name "${FUNCTION_NAME}" \
+                 --name production --function-version "${target}"
+          {
+            echo "## production を更新しました"
+            echo ""
+            echo "- Lambda バージョン: ${target}"
+          } >> "${GITHUB_STEP_SUMMARY}"
