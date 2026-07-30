@@ -122,12 +122,15 @@ repo:jane1210jane@84302077/githubactions-sample1@1312756463
 ```
 
 **この値は自分でも必ず再確認してください。** 以降は CloudShell 側の作業です。上のコマンドの
-出力を `SUB_CLAIM_PREFIX` に設定し、`main` ブランチへの参照を付け足した `SUB_CLAIM` を作ります。
+出力を `SUB_CLAIM_PREFIX` に設定し、**このワークフローが実際に発行させる3種類の `sub`** を
+組み立てます（なぜ3つ要るかは次の見出しで説明します）。
 
 ```bash
 export SUB_CLAIM_PREFIX="repo:jane1210jane@84302077/githubactions-sample1@1312756463"  # 上のコマンドの出力に置き換える
-export SUB_CLAIM="${SUB_CLAIM_PREFIX}:ref:refs/heads/main"
-echo "$SUB_CLAIM"
+export SUB_REF="${SUB_CLAIM_PREFIX}:ref:refs/heads/main"
+export SUB_STAGING="${SUB_CLAIM_PREFIX}:environment:staging"
+export SUB_PRODUCTION="${SUB_CLAIM_PREFIX}:environment:production"
+printf '%s\n' "$SUB_REF" "$SUB_STAGING" "$SUB_PRODUCTION"
 
 cat > trust-policy.json <<JSON
 {
@@ -140,7 +143,11 @@ cat > trust-policy.json <<JSON
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "${SUB_CLAIM}"
+          "token.actions.githubusercontent.com:sub": [
+            "${SUB_REF}",
+            "${SUB_STAGING}",
+            "${SUB_PRODUCTION}"
+          ]
         }
       }
     }
@@ -173,9 +180,45 @@ GitHub が発行する OIDC トークンの `sub` クレームは、ワークフ
 Stage 8 のデプロイワークフロー（Task 10 で追加）は `main` への `push` と、ロールバック用の
 `workflow_dispatch` の2つで起動します。`workflow_dispatch` は「その時点でワークフロー定義が
 存在するブランチ」から実行するのが通常で、マージ後は `main` 以外から実行する意味がありません。
-つまり実際に起動される2パターンはどちらも ref が `refs/heads/main` になるため、
-**`${SUB_CLAIM_PREFIX}:ref:refs/heads/main` という1つの条件でこの2つのトリガーを
-どちらもカバーできます**。`environment:` は使わない設計なので、その形は考慮していません。
+つまり**トリガー**の観点では、どちらも ref が `refs/heads/main` になります。
+
+しかし `sub` を決めるのはトリガーだけではありません。**上の表の最終行のとおり、
+`environment:` を指定したジョブは、トリガーが何であれ `<prefix>:environment:<環境名>` の
+形になり、ref の形は現れません。** `deploy.yml` の3つのジョブは次のように分かれます。
+
+| ジョブ | `environment:` | 発行される `sub` |
+|---|---|---|
+| `build`（Build & Push to ECR） | 無し | `<prefix>:ref:refs/heads/main` |
+| `deploy-staging` | `staging` | `<prefix>:environment:staging` |
+| `deploy-production` | `production` | `<prefix>:environment:production` |
+
+そのためロールを引き受ける必要があるのは3種類の `sub` であり、信頼ポリシーにも3つとも
+書きます。**`StringEquals` の値を配列にすると、そのいずれかに一致すればよい（OR）** という
+意味になります。
+
+ここで1つ注意点があります。**`environment:` 形式の `sub` には ref が含まれないため、
+「`main` からの実行に限る」という制約が `sub` の側からは効きません。** 代わりに
+**environment 側の「デプロイ可能ブランチ」設定（deployment branch policy）を `main` だけに
+限定します。** これを設定しないと、`deploy.yml` を含む任意のブランチから
+`workflow_dispatch` で実行した場合にも environment 付きのジョブが動き、ロールを
+引き受けられてしまいます。設定は GitHub 側の作業なので、リポジトリの
+Settings → Environments → 各環境 → Deployment branches で `main` のみを許可するか、
+次のコマンドで行います（`staging` と `production` の両方に対して実行します）。
+
+```bash
+for env in staging production; do
+  gh api --method PUT "repos/jane1210jane/githubactions-sample1/environments/${env}" \
+    --input - <<'JSON'
+{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
+JSON
+  gh api --method POST \
+    "repos/jane1210jane/githubactions-sample1/environments/${env}/deployment-branch-policies" \
+    -f name=main
+done
+```
+
+つまり防御は「`build` は `sub` の ref 条件で」「デプロイの2ジョブは environment の
+ブランチ設定で」`main` に限定される、という分担になります。
 
 これを `${SUB_CLAIM_PREFIX}:*` のように緩めると、**このリポジトリの任意のブランチ・
 任意の PR からロールを引き受けられてしまいます。** 特に `pull_request` を含めてしまうと
@@ -193,7 +236,31 @@ fork からの `pull_request` トリガーには読み取り専用の `GITHUB_TO
 シークレットにアクセスできてしまう、という別の危険があります。今回の `deploy.yml` は
 `pull_request_target` を使わないので、この危険自体は関係ありません。）
 
-上記の1条件で、`push` と `workflow_dispatch` の両方を過不足なくカバーできます。
+上記の3条件と environment のブランチ設定で、`push` と `workflow_dispatch` の両方を
+過不足なくカバーできます。
+
+#### すでにロールを作ってしまっている場合
+
+3.2 節の以前の版は `sub` を `ref:refs/heads/main` の1つしか許可していませんでした。その形で
+ロールを作っていると、`build` だけが成功し、`deploy-staging` で次のエラーが出て失敗します。
+
+```
+Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity
+```
+
+ロールを作り直す必要はありません。信頼ポリシーだけを差し替えます。3.0 節の変数と、
+上の `SUB_REF` / `SUB_STAGING` / `SUB_PRODUCTION` を設定し直したうえで、同じ内容の
+`trust-policy.json` を作り、次を実行してください。
+
+```bash
+aws iam update-assume-role-policy \
+  --role-name "$DEPLOY_ROLE_NAME" \
+  --policy-document file://trust-policy.json
+
+# 反映を確認する（3つの sub が並んでいること）
+aws iam get-role --role-name "$DEPLOY_ROLE_NAME" \
+  --query 'Role.AssumeRolePolicyDocument.Statement[0].Condition' --output json
+```
 
 #### immutable subject claim について（この手順書の `sub` が ID 入りである理由）
 
