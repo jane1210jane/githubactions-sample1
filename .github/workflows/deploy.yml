@@ -17,8 +17,12 @@ on:
         type: string
 
 concurrency:
-  # デプロイは重ねない。走行中のものを消さずに待たせる。
-  group: deploy-${{ github.ref }}
+  # デプロイ先（Lambda 関数1つ、staging/production エイリアス）は ref に
+  # 依存しない。ref 別にグループを分けると、main への push によるデプロイと
+  # 別ブランチからの workflow_dispatch（ロールバック）が同時に走り、同じ
+  # 関数に publish-version / update-alias を競合させてしまう。だから
+  # グループは固定の定数にし、走行中のものを消さずに待たせる。
+  group: deploy
   cancel-in-progress: false
 
 permissions:
@@ -35,8 +39,6 @@ jobs:
       # aws-actions/configure-aws-credentials は認証できない
       # （同 action の README で明記されている必須 permission）。
       id-token: write
-    outputs:
-      image-uri: ${{ steps.push.outputs.image-uri }}
     steps:
       - name: リポジトリを取得する
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -58,7 +60,6 @@ jobs:
         uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64  # v2.1.6
 
       - name: イメージをビルドして push する
-        id: push
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           REPOSITORY: ${{ vars.ECR_REPOSITORY }}
@@ -67,19 +68,26 @@ jobs:
           uri="${REGISTRY}/${REPOSITORY}:${IMAGE_TAG}"
           docker build --tag "${uri}" .
           docker push "${uri}"
-          echo "image-uri=${uri}" >> "${GITHUB_OUTPUT}"
 
       # Stage 0 で予告した「ジョブ間でファイルを渡す仕組み」がここで要る。
-      # 値が1つなら outputs で足りるが、デプロイの記録は増えていくものなので
-      # 最初からファイルの形にしておく。
+      #
+      # 【マスクの限界】REGISTRY（"<ACCOUNT_ID>.dkr.ecr.<region>.amazonaws.com"）は
+      # 上の configure-aws-credentials の mask-aws-account-id でこのジョブの
+      # ログ上はマスクされるが、マスクが効くのはランナーのログストリームだけ。
+      # artifact としてアップロードするファイルの中身にも、GITHUB_STEP_SUMMARY にも
+      # マスクは一切効かない。このリポジトリは public なので、artifact に書いた
+      # 内容は誰でもダウンロードできる。だからこのマニフェストには、アカウント ID を
+      # 含む完全な image URI ではなく、そこに含まれない部品（リポジトリ名・
+      # コミット SHA）だけを書く。フルの URI は deploy-staging 側で、そのジョブ
+      # 自身が取得したアカウント ID から組み立て直す。
       - name: デプロイ用のマニフェストを書き出す
         env:
-          IMAGE_URI: ${{ steps.push.outputs.image-uri }}
+          ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
           cat > deployment-manifest.json <<JSON
           {
-            "image_uri": "${IMAGE_URI}",
+            "ecr_repository": "${ECR_REPOSITORY_NAME}",
             "commit_sha": "${COMMIT_SHA}",
             "built_at": "$(date --iso-8601=seconds)"
           }
@@ -123,16 +131,40 @@ jobs:
       #
       # 実行ロールの名前 sales-report-etl-lambda-role は同手順書 3.3 節で
       # 固定した名前規約（学習者から受け取る4値には含まれない）。この名前と
-      # 実行時に取得したアカウント ID から ARN を組み立てる。アカウント ID は
-      # 上の configure-aws-credentials の mask-aws-account-id で
-      # マスク済みなので、この ARN を含めログに出しても実際の値は表示されない。
+      # 実行時に取得したアカウント ID から ARN を組み立てる。
+      #
+      # 【マスクの限界】account_id は上の configure-aws-credentials の
+      # mask-aws-account-id により「このジョブのログ」ではマスクされる。
+      # しかし GITHUB_STEP_SUMMARY と artifact にはマスクが効かないため、
+      # account_id・exec_role_arn・image_uri（いずれもアカウント ID を含む）は
+      # このステップの中だけで使い、ステップサマリにも次の artifact にも
+      # 一切書き出さない（zizmor の finding が消えてもリスククラスは消えない、
+      # という Stage 6 の教訓と同じ型）。
+      #
+      # 初回作成時の --timeout / --memory-size はデフォルト（3秒/128MB）のままだと
+      # 2回目以降 update-function-code しか呼ばないため恒久設定になってしまう。
+      # CSV→JSON の ETL には既定値では不足する見込みのため、60秒/512MB を明示する。
+      # この値は見積もりであり、AWS 無しでは妥当性を確認できない
+      # （Task 10b の実デプロイで実測し、必要なら調整する）。
       - name: Lambda を作成または更新して staging エイリアスを張り替える
         env:
           FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
           EXEC_ROLE_NAME: sales-report-etl-lambda-role
+          CREATE_TIMEOUT_SECONDS: "60"
+          CREATE_MEMORY_SIZE_MB: "512"
+          # 上の configure-aws-credentials も output-env-credentials（既定 true）で
+          # 同じ値を環境変数として渡してくるが、ここで vars.AWS_REGION から
+          # 明示的に渡し直す（この run: の中で参照する変数は env: 経由にする
+          # という規約に合わせるため）。
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
-          image_uri=$(python -c "import json;print(json.load(open('deployment-manifest.json'))['image_uri'])")
-          echo "デプロイするイメージ: ${image_uri}"
+          ecr_repository=$(python -c "import json;print(json.load(open('deployment-manifest.json'))['ecr_repository'])")
+          image_tag=$(python -c "import json;print(json.load(open('deployment-manifest.json'))['commit_sha'])")
+
+          # account_id はマニフェストに書かず、ここで取得したものだけを使う。
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          image_uri="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ecr_repository}:${image_tag}"
+          echo "デプロイするイメージのタグ: ${image_tag}"
 
           if aws lambda get-function --function-name "${FUNCTION_NAME}" >/dev/null 2>&1; then
             echo "既存の Lambda 関数を更新します"
@@ -142,13 +174,14 @@ jobs:
             aws lambda wait function-updated --function-name "${FUNCTION_NAME}"
           else
             echo "Lambda 関数がまだ無いため初回作成します（docs/aws-bootstrap.md 3.7 節）"
-            account_id=$(aws sts get-caller-identity --query Account --output text)
             exec_role_arn="arn:aws:iam::${account_id}:role/${EXEC_ROLE_NAME}"
             aws lambda create-function \
               --function-name "${FUNCTION_NAME}" \
               --package-type Image \
               --code ImageUri="${image_uri}" \
-              --role "${exec_role_arn}" >/dev/null
+              --role "${exec_role_arn}" \
+              --timeout "${CREATE_TIMEOUT_SECONDS}" \
+              --memory-size "${CREATE_MEMORY_SIZE_MB}" >/dev/null
             aws lambda wait function-active --function-name "${FUNCTION_NAME}"
           fi
 
@@ -161,7 +194,8 @@ jobs:
           {
             echo "## staging へデプロイしました"
             echo ""
-            echo "- イメージ: \`${image_uri}\`"
+            echo "- ECR リポジトリ: \`${ecr_repository}\`"
+            echo "- イメージタグ（commit sha）: \`${image_tag}\`"
             echo "- Lambda バージョン: ${version}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
