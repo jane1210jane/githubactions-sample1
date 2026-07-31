@@ -141,11 +141,20 @@ jobs:
       # 一切書き出さない（zizmor の finding が消えてもリスククラスは消えない、
       # という Stage 6 の教訓と同じ型）。
       #
-      # 初回作成時の --timeout / --memory-size はデフォルト（3秒/128MB）のままだと
-      # 2回目以降 update-function-code しか呼ばないため恒久設定になってしまう。
-      # CSV→JSON の ETL には既定値では不足する見込みのため、60秒/512MB を明示する。
-      # この値は見積もりであり、AWS 無しでは妥当性を確認できない
-      # （Task 10b の実デプロイで実測し、必要なら調整する）。
+      # 初回作成時の --timeout / --memory-size を明示するのは、デフォルト
+      # （3秒/128MB）のまま作ってしまうと、2回目以降は update-function-code しか
+      # 呼ばないため、その既定値が恒久設定として残ってしまうから。
+      #
+      # 初回デプロイ後に実測した値（data/sales_sample.csv・3か月分）:
+      #   コールドスタート Duration 754.29ms + Init Duration 1601.33ms（課金 2356ms）
+      #   ウォームスタート Duration 157.04ms / Max Memory Used 95MB（いずれも 512MB 割当）
+      # 60秒は実測の20倍以上、512MB も実使用 95MB に対して過大である。それでも
+      # 下げていないのは、Lambda の CPU 割当がメモリ割当に比例するため、256MB へ
+      # 落とすと実行時間が延び、GB-秒での課金がほぼ変わらないからである。
+      #
+      # なお、この2つの値が効くのは create-function のときだけで、すでに存在する
+      # 関数には反映されない（変えるなら update-function-configuration を明示的に
+      # 呼ぶ必要がある）。
       - name: Lambda を作成または更新して staging エイリアスを張り替える
         env:
           FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}

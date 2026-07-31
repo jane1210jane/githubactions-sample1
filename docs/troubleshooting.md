@@ -170,3 +170,51 @@ SHA + バージョンコメントに、`permissions:` は必要な範囲だけ�
 **ただしこれはリスククラスそのものの解消ではなく、静的解析のパターンマッチが
 対象から外れただけである点に注意する。** 詳しくは
 [Stage 7 の解説](stages/stage-07-container.md) を参照。
+
+### `Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity`
+
+**原因**: GitHub からトークンは届いているが、AWS 側の信頼ポリシーがそのトークンの
+`sub` クレームを許可していない。**「AWS まで到達したが断られた」状態**であり、
+GitHub 側の `permissions` は正しい。よくあるのは次の3つ。
+
+1. **ジョブに `environment:` を付けた。** environment を指定したジョブの `sub` は、
+   トリガーが何であれ `<prefix>:environment:<環境名>` になり、ref の形は現れない。
+   信頼ポリシーが `ref:refs/heads/main` しか許可していないと、environment を持たない
+   ジョブだけが成功し、デプロイのジョブだけが落ちる、という非対称な失敗になる。
+2. **`main` 以外のブランチから実行した。** `sub` の ref 部分が一致しない。
+3. **信頼ポリシーの `sub` が旧形式（数値 ID 無し）で書かれている。**
+
+**対処**: [docs/aws-bootstrap.md](aws-bootstrap.md) 3.2 節の手順で、実際に発行される
+`sub` を `gh api repos/<OWNER>/<REPO>/actions/oidc/customization/sub` で確認し、必要な
+`sub` をすべて信頼ポリシーに列挙する（`StringEquals` の値は配列にできる）。
+**`sub` を `*` で緩めて回避しないこと。** ロールを作り直す必要はなく、
+`aws iam update-assume-role-policy` で信頼ポリシーだけを差し替えられる。
+
+### `Credentials could not be loaded, please check your action inputs: Could not load credentials from any providers`
+
+**原因**: `aws-actions/configure-aws-credentials` が OIDC トークンを取得できていない。
+**AWS へリクエストが飛ぶ前の失敗**で、ほぼ確実にジョブへの `id-token: write` の
+付け忘れである。同じログの少し上に、action 自身が出す次のヒントが（`##[error]` ではなく
+通常のログ行として）出ている。
+
+```
+It looks like you might be trying to authenticate with OIDC.
+Did you mean to set the `id-token` permission?
+```
+
+**対処**: そのジョブの `permissions:` に `id-token: write` を足す。トップレベルに
+書いてもよいが、必要なジョブにだけ足すほうが Stage 6 の原則に沿う。なお、この失敗は
+12回リトライして約80秒かけてから確定するので、一時的なネットワーク障害と誤解しない
+こと。詳しくは [Stage 8 の解説](stages/stage-08-aws-deploy.md) と
+[演習1の解答](stages/answers/stage-08.md) を参照。
+
+### `Deploy` の実行が `waiting` のまま進まない / production が始まらない
+
+**原因**: 失敗ではない。`production` environment に承認者（`required_reviewers`）が
+設定してあるため、人が承認するまでジョブが開始されない。`gh run view <id> --json jobs`
+では `Deploy to production=waiting/-` と表示される。
+
+**対処**: Actions 画面の該当実行にある **Review deployments** から承認する。
+`gh api repos/<OWNER>/<REPO>/actions/runs/<id>/pending_deployments` で承認待ちの環境と
+自分が承認できるかを確認できる。**放置すると期限切れになる**ので、承認待ちであることに
+気づけるようにしておくこと。
