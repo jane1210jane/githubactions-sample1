@@ -40,6 +40,7 @@ git switch main                # 最新の状態に戻る
 |---|---|---|
 | 6 | セキュリティ基礎 | [stage-06](docs/stages/stage-06-security.md) |
 | 7 | ETL 化とコンテナ | [stage-07](docs/stages/stage-07-container.md) |
+| 8 | AWS へ実デプロイ | [stage-08](docs/stages/stage-08-aws-deploy.md) |
 
 ### フェーズ4
 
