@@ -208,6 +208,19 @@ Did you mean to set the `id-token` permission?
 こと。詳しくは [Stage 8 の解説](stages/stage-08-aws-deploy.md) と
 [演習1の解答](stages/answers/stage-08.md) を参照。
 
+### `Could not assume role with OIDC: connect ETIMEDOUT <IP>:443`
+
+**原因**: STS のエンドポイントへの TCP 接続が成立していない。**AWS に届いていない**ので、
+設定（`permissions` も信頼ポリシーも）は何も間違っていない。ランナーと AWS の間の
+一時的なネットワーク障害である。
+
+**対処**: 何も直さず再実行する。実測では、1回の試行が約6分半ハングし、2回リトライした
+ところでジョブの `timeout-minutes: 20` に達して打ち切られ、同じ手順の再実行では成功した。
+**このエラーを設定ミスと誤認して信頼ポリシーを編集すると、正しい設定を壊す。** 同じ
+「認証できない」でも、`Not authorized to perform sts:AssumeRoleWithWebIdentity`（届いたが
+拒否）や `Could not load credentials from any providers`（トークンを要求できていない）とは
+対処が異なる。切り分け表は [演習2の解答](stages/answers/stage-08.md) を参照。
+
 ### `Deploy` の実行が `waiting` のまま進まない / production が始まらない
 
 **原因**: 失敗ではない。`production` environment に承認者（`required_reviewers`）が

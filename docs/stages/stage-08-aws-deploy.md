@@ -529,6 +529,24 @@ Lambda の**バージョンは不変**です。`deploy.yml` の197行目の `pub
   234行目の `${{ inputs.rollback_to_version }}` は、`push` トリガーでは空文字列に
   なります。236行目の `if [ -n "${ROLLBACK_TO}" ]` はこれを前提にした分岐です。
 
+- **ロールバックの実行でも新しいバージョンが発行される** — `deploy.yml` の214行目の
+  `needs: deploy-staging` により、`deploy-production` の前に必ず `build` と
+  `deploy-staging` が走ります。つまりロールバックのつもりで実行しても、イメージが
+  ビルドされ、`publish-version` が新しい番号を作り、`staging` エイリアスはそちらへ
+  進みます。**同じコミットから実行してもこれが起きます**（Lambda はイメージをタグでは
+  なくダイジェストで解決し、Docker のビルドは既定では再現可能ではないため、
+  ビルドし直すとダイジェストが変わります）。実測では、`production` を1 へ戻した実行で
+  バージョン3 が新たに発行され、`staging` は3 を指しました。実務では
+  `rollback_to_version` が指定されたときに `build` と `deploy-staging` を
+  スキップする分岐を入れるべきです。詳しくは[演習2の解答](answers/stage-08.md)を
+  参照してください。
+
+- **認証の失敗には「AWS に届いていない」パターンもある** — `connect ETIMEDOUT
+  <IP>:443` はネットワーク層の一時障害で、設定は何も間違っていません。1回の試行に
+  約6分半かかるため、`timeout-minutes: 20` では2回リトライした時点でジョブごと
+  打ち切られます。**このときに信頼ポリシーを触り始めると、正しい設定を壊します。**
+  3種類の認証失敗の切り分け表を[演習2の解答](answers/stage-08.md)に載せています。
+
 ## 7. 演習課題
 
 以下の3問は [docs/stages/answers/stage-08.md](answers/stage-08.md) に解答があります。
