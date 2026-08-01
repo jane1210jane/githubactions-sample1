@@ -30,9 +30,9 @@ lint、型、テスト、カバレッジ——すべて「動くか」の検査�
 
 ## 4. 手順
 
-以下は実際に行った手順です（Task 3・4 として先行実施済み）。
+以下は実際に行った手順です（このドキュメントでは内部の管理番号ではなく実施内容で示します）。
 
-### 手順A: サードパーティ action の SHA ピン留めと Dependabot（Task 3 Step 2〜6）
+### 手順A: サードパーティ action の SHA ピン留めと Dependabot
 
 `actions/checkout@v7`・`actions/upload-artifact@v7`・`astral-sh/setup-uv@v7` の3つの
 タグ参照について、`gh api repos/<repo>/commits/<tag> --jq .sha` で対応する SHA を解決し、
@@ -48,7 +48,7 @@ lint、型、テスト、カバレッジ——すべて「動くか」の検査�
 新規に1件追加され、`conclusion: success` だったことを `gh api repos/.../commits/<sha>/check-runs`
 で確認し、`package-ecosystem: uv` が実際に受理される設定であることの直接証拠としました。
 
-### 手順B: `zizmor` の導入と検査ステップの追加（Task 4 Step 1〜4）
+### 手順B: `zizmor` の導入と検査ステップの追加
 
 `pyproject.toml` の `dev` 依存に `zizmor>=1.0` を追加し、`uv sync` で
 `zizmor==1.28.0` を解決しました。`uv run zizmor .github/workflows/ .github/actions/`
@@ -58,7 +58,7 @@ lint、型、テスト、カバレッジ——すべて「動くか」の検査�
 その後、`static` ジョブの「ワークフローを actionlint で検査する」ステップの直後に、
 `zizmor` を実行するステップを追加しました（commit `0755bb2`）。
 
-### 手順C: `permissions` の効果を実測する（Task 4 Step 5）
+### 手順C: `permissions` の効果を実測する
 
 `gate` ジョブに、PR へコメントを書こうとするだけの一時的なステップを追加し、push しては
 結果を記録し、確認後に revert する、という手順を複数回踏みました。最初の試行
@@ -523,7 +523,7 @@ GraphQL: Resource not accessible by integration (addComment)
 - `zizmor` の指摘を `# zizmor: ignore` で黙らせるのは、検査を入れた意味そのものを
   失わせる。このリポジトリでは一度も使っていない（`grep -rn "zizmor: ignore"
   .github/` で確認済み、ヒット無し）。指摘が出たらコード側を直す。
-- Task 4 Step 5 で採取した実際の権限エラーの文言は次のとおりで、これは
+- 手順C で採取した実際の権限エラーの文言は次のとおりで、これは
   `permissions: contents: read` のときに `GITHUB_TOKEN` で PR にコメントしようと
   すると起こります（前節参照）。
 
