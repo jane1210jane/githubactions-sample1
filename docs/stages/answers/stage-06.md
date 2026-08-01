@@ -79,7 +79,7 @@ PR タイトルも `renamed` イベントのとおり元の `Stage 6: セキュ�
 ## 問2: `zizmor` の指摘を1つ意図的に再導入する
 
 **予想**: SHA でピン留めした `uses:` を1つタグ参照に戻せば、`zizmor` の
-`unpinned-uses`（Task 3 で解消済みのはずの指摘）が再び報告され、`Static Checks`
+`unpinned-uses`（手順A で解消済みのはずの指摘）が再び報告され、`Static Checks`
 ジョブが失敗するはずです。
 
 **実際に確かめる**: `.github/actions/setup-python-env/action.yml` の

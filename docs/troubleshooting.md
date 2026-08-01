@@ -14,7 +14,7 @@ GitHub Actions の失敗は、ローカルと違って手元で再現しづら�
 ### `ModuleNotFoundError: No module named 'sales_report'`
 
 **原因**: `actions/checkout` を書き忘れているか、依存のインストール前にテストを実行している。
-**対処**: `uses: actions/checkout@v7` が最初のステップにあるか、`uv sync --locked` の後に
+**対処**: `actions/checkout` のステップ（Stage 6 以降は SHA ピン留め）が最初にあるか、`uv sync --locked` の後に
 `uv run pytest` が来ているかを確認する。
 
 ### `The lockfile at 'uv.lock' needs to be updated`

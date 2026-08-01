@@ -429,7 +429,8 @@ ls /tmp/cov-check/index.html
 - **artifact 名が重複すると上書き・失敗の原因になるため matrix の値を名前に含める。**
   108行目の `name: coverage-html-${{ matrix.os }}-${{ matrix.python-version }}` は
   matrix の値を含めているため、3レグそれぞれ `coverage-html-ubuntu-latest-3.12` のように
-  異なる名前になります。`actions/upload-artifact@v4` 以降（本教材は `@v7` を使用）では、
+  異なる名前になります。`actions/upload-artifact@v4` 以降（本教材は v7 系を使用。
+  Stage 6 以降はタグではなく SHA でピン留めしています）では、
   同じ実行内で同名の artifact を複数回アップロードするとエラーで失敗します。
   上書きしたい場合は `overwrite: true` を明示する必要があります。
 - **`if: always()`（121行目）は、依存ジョブが `failure` になった場合だけでなく、

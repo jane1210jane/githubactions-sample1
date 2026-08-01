@@ -177,7 +177,7 @@ GitHub が発行する OIDC トークンの `sub` クレームは、ワークフ
 | `workflow_dispatch`（手動実行） | `<prefix>:ref:refs/heads/<dispatch した ref>` |
 | ジョブが `environment:` を指定している場合 | どのトリガーでも `<prefix>:environment:<環境名>` |
 
-Stage 8 のデプロイワークフロー（Task 10 で追加）は `main` への `push` と、ロールバック用の
+Stage 8 のデプロイワークフロー（`.github/workflows/deploy.yml`）は `main` への `push` と、ロールバック用の
 `workflow_dispatch` の2つで起動します。`workflow_dispatch` は「その時点でワークフロー定義が
 存在するブランチ」から実行するのが通常で、マージ後は `main` 以外から実行する意味がありません。
 つまり**トリガー**の観点では、どちらも ref が `refs/heads/main` になります。
@@ -490,7 +490,7 @@ push とは別の操作です）。これらもすべて `sales-report` リポ�
 
 Lambda 側は `sales-report-etl` という関数の ARN（無修飾の ARN と、バージョン・エイリアスを
 含む修飾 ARN の両方）に絞っています。`lambda:GetFunctionConfiguration` は
-`lambda:GetFunction` とは別の API 権限で、Task 10 のデプロイワークフローが
+`lambda:GetFunction` とは別の API 権限で、Stage 8 のデプロイワークフローが
 `aws lambda wait function-updated` でコード更新の完了を待つ際に内部で使います
 （`update-function-code` の直後に待たずに `publish-version` すると
 `ResourceConflictException` になるため、この待ち合わせが必要です）。`iam:PassRole` は
@@ -551,7 +551,7 @@ Lambda 関数を新規作成すると、Lambda は「自分自身がこの ECR �
 ## 4. 確認
 
 ここまでで作成したものを一覧にします。実際の値をこの表の形で控えておくと、
-後片付け（6章）のときにも、Task 10 で困ったときにも役立ちます。
+後片付け（6章）のときにも、Stage 8 のデプロイで困ったときにも役立ちます。
 
 ```bash
 echo "OIDC provider ARN : $OIDC_PROVIDER_ARN"
@@ -575,8 +575,8 @@ echo "Region            : $REGION"
 
 ## 5. 私に渡すもの
 
-以下の4つの値を、私（Task 10 でリポジトリのシークレット／変数として設定します）に
-伝えてください。
+以下の4つの値を、リポジトリのシークレット／変数として設定する人に伝えてください
+（自分で設定する場合は、この表のとおりに設定します）。
 
 | 値 | 種類 | 内容 |
 |---|---|---|
