@@ -9,7 +9,7 @@ dependencies = []
 # 実行時に必要なのは Lambda コンテナの中だけなので、通常の dependencies には
 # 入れず、コンテナ側だけが参照する extra として分離する。
 [project.optional-dependencies]
-aws = ["boto3>=1.34"]
+aws = ["boto3>=1.43.62"]
 
 [project.scripts]
 sales-report = "sales_report.cli:main"
@@ -23,7 +23,7 @@ packages = ["src/sales_report"]
 
 [dependency-groups]
 dev = [
-  "boto3>=1.34",
+  "boto3>=1.43.62",
   "moto[s3]>=5.0",
   "mypy>=1.11",
   "pytest>=8.0",
