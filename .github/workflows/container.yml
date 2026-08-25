@@ -43,7 +43,7 @@ jobs:
 
       # buildx を使うと、レイヤキャッシュを外部に出し入れできるようになる。
       - name: Docker Buildx を用意する
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0
 
       # レイヤキャッシュを actions/cache で自分で管理する。
       # Stage 3 では setup-uv がキャッシュを自動で面倒みてくれていたが、
